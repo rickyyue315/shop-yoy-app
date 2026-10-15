@@ -265,6 +265,7 @@
           <span class="sep"></span><label>Type</label><div id="chipsType" class="chips"></div></div>
         <div class="frow"><label>其他</label>
           <label class="chk"><input type="checkbox" id="chkFocus"> 只顯示「需特別關注」店鋪</label>
+          <label class="chk"><input type="checkbox" id="chkLeanSku"> 只顯示「精簡SKU店舖」</label>
           <label class="chk"><input type="checkbox" id="chkTemplate"> 只顯示 stores-template 內店鋪</label>
           <label class="chk"><input type="checkbox" id="chkHideEmpty" checked> 隱藏無數據店鋪</label>
         </div>
@@ -323,7 +324,7 @@ let DS = null, TOKEN = null;
 const state = {
   year: null, months: new Set(), sites: new Set(),
   regional: new Set(), om: new Set(), class1: new Set(), class2: new Set(), size: new Set(), type: new Set(),
-  focusOnly: false, templateOnly: false, hideEmpty: true,
+  focusOnly: false, templateOnly: false, leanSkuOnly: false, hideEmpty: true,
   groupBy: 'shop', view: 'agg', matrixMetric: 'salesYoy',
   sortKey: 'curSales', sortDir: 'desc'
 };
@@ -377,6 +378,7 @@ function buildGroups() {
       if (set.size && !set.has(s[k] || '')) return false;
     }
     if (state.focusOnly && !s.focus) return false;
+    if (state.leanSkuOnly && !s.leanSku) return false;
     if (state.templateOnly && !s.inTemplate) return false;
     return true;
   };
@@ -595,8 +597,9 @@ function leadCellHTML(g) {
       [site.class1, site.class2].filter(Boolean).join('/'), site.size, site.om, site.type]
       .filter(Boolean).join(' · ') : '';
     const warn = site && site.focus ? ' <span class="warnq" title="需特別關注">⚠</span>' : '';
+    const lean = site && site.leanSku ? ' <span class="tag">精簡SKU</span>' : '';
     const tag = site && !site.inTemplate ? ' <span class="tag">模板外</span>' : '';
-    return `<td class="lead sticky-col" title="${esc(title)}"><span class="scode">${esc(site ? site.code : '')}</span>${esc(site ? site.name : '')}${warn}${tag}</td>`;
+    return `<td class="lead sticky-col" title="${esc(title)}"><span class="scode">${esc(site ? site.code : '')}</span>${esc(site ? site.name : '')}${warn}${lean}${tag}</td>`;
   }
   return `<td class="lead sticky-col">${esc(g.label)} <span class="muted">(${g.n} 間)</span></td>`;
 }
@@ -746,8 +749,9 @@ function renderSites(filterText) {
     if (q && !(s.code.toLowerCase().includes(q) || (s.name || '').toLowerCase().includes(q))) return '';
     const meta = [s.regional, s.om, s.class2, s.size].filter(Boolean).join(' · ');
     const warn = s.focus ? ' <span class="warnq" title="需特別關注">⚠</span>' : '';
+    const lean = s.leanSku ? ' <span class="tag">精簡SKU</span>' : '';
     return `<label class="ms-item"><input type="checkbox" data-i="${i}" ${state.sites.has(i) ? 'checked' : ''}>
-      <span class="ms-code">${esc(s.code)}</span><span class="ms-name">${esc(s.name || '')}${warn}</span>
+      <span class="ms-code">${esc(s.code)}</span><span class="ms-name">${esc(s.name || '')}${warn}${lean}</span>
       <span class="ms-meta">${esc(meta)}</span></label>`;
   }).join('');
   $('#siteList').innerHTML = html || '<div class="ms-none muted">沒有符合的店鋪</div>';
@@ -786,7 +790,7 @@ function initDashboard(ds, token) {
   DS = ds; TOKEN = token;
   state.sites = new Set(ds.sites.map((_, i) => i));
   for (const k of ATTRS) state[k] = new Set();
-  state.focusOnly = false; state.templateOnly = false; state.hideEmpty = true;
+  state.focusOnly = false; state.templateOnly = false; state.leanSkuOnly = false; state.hideEmpty = true;
   state.groupBy = 'shop'; state.sortKey = 'curSales'; state.sortDir = 'desc';
   state.view = 'agg'; state.matrixMetric = 'salesYoy';
   $('#groupSel').value = 'shop';
@@ -794,6 +798,7 @@ function initDashboard(ds, token) {
   $('#metricSel').value = 'salesYoy';
   $('#metricSel').classList.add('hidden');
   $('#chkFocus').checked = false;
+  $('#chkLeanSku').checked = false;
   $('#chkTemplate').checked = false;
   $('#chkHideEmpty').checked = true;
 
@@ -849,7 +854,8 @@ function collectOpts() {
     siteCodes: state.sites.size === DS.sites.length ? null : [...state.sites].map(i => DS.sites[i].code),
     regional: [...state.regional], om: [...state.om], class1: [...state.class1],
     class2: [...state.class2], size: [...state.size], type: [...state.type],
-    focusOnly: state.focusOnly, templateOnly: state.templateOnly, hideEmpty: state.hideEmpty,
+    focusOnly: state.focusOnly, templateOnly: state.templateOnly, leanSkuOnly: state.leanSkuOnly,
+    hideEmpty: state.hideEmpty,
     groupBy: state.groupBy, view: state.view, matrixMetric: state.matrixMetric
   };
 }
@@ -965,6 +971,7 @@ document.querySelector('.adv').addEventListener('click', e => {
   render();
 });
 $('#chkFocus').addEventListener('change', e => { state.focusOnly = e.target.checked; render(); });
+$('#chkLeanSku').addEventListener('change', e => { state.leanSkuOnly = e.target.checked; render(); });
 $('#chkTemplate').addEventListener('change', e => { state.templateOnly = e.target.checked; render(); });
 $('#chkHideEmpty').addEventListener('change', e => { state.hideEmpty = e.target.checked; render(); });
 

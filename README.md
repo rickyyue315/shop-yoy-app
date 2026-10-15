@@ -9,7 +9,7 @@
 - 自動對照 `stores-template.csv`，為每間店補上 Regional／Class 1／Class 2／Size／OM／Type／需特別關注 等屬性
 - 篩選：**Site**（可搜尋、多選）、**年份**、**月份**（單月 = 單月 YoY；多月 = 累計 YoY，例如 1–9 月 YTD）
 - 檢視模式：**累計**（合併所選月份）或 **按月矩陣**（每店一行、每月一欄顯示該月 YoY%，可切換指標：淨銷售／銷量／GP$／GP%／數值，尾加「合計」欄）
-- 進階篩選：Regional／OM／Class 1／Class 2／Size／Type、只顯示需特別關注店鋪、只顯示模板內店鋪
+- 進階篩選：Regional／OM／Class 1／Class 2／Size／Type、只顯示需特別關注店鋪、**只顯示精簡SKU店舖**（18 間：HA19、HA21、HA33、HA37、HB30、HC44、HB86、HB77、HB91、HB94、HC26、HC60、HC62、HC68、HC13、HC69、HB87、HB80）、只顯示模板內店鋪
 - 分組檢視：店鋪／Regional／OM／Class 1／Class 2／Size／Type（連分組匯總 YoY）
 - 指標：淨銷售、銷量、毛利 GP$ 的 YoY%，以及毛利率變化（± pp）
 - 一鍵下載 Excel 報告（格式與畫面一致，附自動篩選、凍結窗格）
@@ -61,6 +61,7 @@ git push -u origin main
 ### 3. 更新
 
 - **更新店鋪主檔**：修改 `stores-template.csv` → push 到 GitHub → Zeabur 自動重新部署
+- **更新「精簡SKU店舖」名單**：修改 `app.py` 最上方的 `LEAN_SKU_SITES` 清單 → push
 - **更新程式**：push 到 GitHub 即自動重新部署
 
 ## 使用流程

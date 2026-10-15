@@ -61,6 +61,12 @@ GROUP_LABELS = {
     'type': 'Type',
 }
 
+# 精簡 SKU 店鋪（進階篩選快速選用；如日後名單有變，改呢個清單即可）
+LEAN_SKU_SITES = {
+    'HA19', 'HA21', 'HA33', 'HA37', 'HB30', 'HC44', 'HB86', 'HB77', 'HB91',
+    'HB94', 'HC26', 'HC60', 'HC62', 'HC68', 'HC13', 'HC69', 'HB87', 'HB80',
+}
+
 # 按月矩陣的可用指標：metric -> (顯示種類, 標籤)
 MATRIX_METRICS = {
     'salesYoy': ('yoy', '淨銷售 YoY%'),
@@ -266,6 +272,7 @@ def parse_excel(fileobj):
                 'type': (t or {}).get('type', ''),
                 'focus': bool((t or {}).get('focus', False)),
                 'inTemplate': t is not None,
+                'leanSku': code in LEAN_SKU_SITES,
             })
             s_idx[code] = len(sites) - 1
 
@@ -323,6 +330,8 @@ def _select_groups(ds, opts):
         if opts.get('templateOnly') and not s['inTemplate']:
             return False
         if opts.get('focusOnly') and not s['focus']:
+            return False
+        if opts.get('leanSkuOnly') and not s.get('leanSku'):
             return False
         for k, vals in fsets.items():
             if vals and (s.get(k) or '') not in vals:
@@ -492,6 +501,8 @@ def _filter_summary(opts):
             parts.append('%s：%s' % (label, '、'.join(str(v) for v in vals)))
     if opts.get('focusOnly'):
         parts.append('只顯示需特別關注店鋪')
+    if opts.get('leanSkuOnly'):
+        parts.append('只顯示精簡SKU店鋪')
     if opts.get('templateOnly'):
         parts.append('只顯示 stores-template 內店鋪')
     return '；'.join(parts)
