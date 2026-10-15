@@ -22,6 +22,7 @@ import re
 import threading
 import time
 import uuid
+import zipfile
 from datetime import date, datetime
 
 import openpyxl
@@ -52,6 +53,18 @@ _DATASET_ORDER = []
 _TIMES = {}
 _DATASETS_MAX = 5
 _LOCK = threading.Lock()
+
+# 上載解析任務（背景解析 + 進度查詢）：task_id -> 狀態
+_TASKS = {}
+_TASKS_LOCK = threading.Lock()
+
+
+def _prune_tasks():
+    """清走超過 1 小時嘅解析任務記錄。"""
+    now = time.time()
+    with _TASKS_LOCK:
+        for tid in [t for t, v in _TASKS.items() if now - v.get('ts', 0) > 3600]:
+            _TASKS.pop(tid, None)
 
 GROUP_FIELDS = {
     'shop': None,
@@ -188,21 +201,80 @@ def load_template():
 ALL_DIMS = ['brand', 'mch1', 'mch2', 'mc', 'nature', 'postal', 'buyer', 'sst']
 
 
-def parse_excel(fileobj):
+def _count_rows_quick(data, sheet_name):
+    """快速估算工作表總行數（直接數 XML 嘅 row 標籤，支援任何命名空間前綴），失敗回傳 0。"""
+    try:
+        row_re = re.compile(rb'<[A-Za-z0-9]*:?row[ >/]')
+        zf = zipfile.ZipFile(io.BytesIO(data))
+        sheet_path = None
+        try:
+            from xml.etree import ElementTree as ET
+            rid = None
+            wbxml = ET.fromstring(zf.read('xl/workbook.xml'))
+            for el in wbxml.iter():
+                if el.tag.endswith('sheet') and el.get('name') == sheet_name:
+                    rid = el.get('{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id')
+                    break
+            if rid:
+                rels = ET.fromstring(zf.read('xl/_rels/workbook.xml.rels'))
+                for rel in rels.iter():
+                    if rel.tag.endswith('Relationship') and rel.get('Id') == rid:
+                        tgt = rel.get('Target') or ''
+                        if tgt.startswith('/'):
+                            sheet_path = tgt.lstrip('/')
+                        elif tgt.startswith('xl/'):
+                            sheet_path = tgt
+                        else:
+                            sheet_path = 'xl/' + tgt
+                        break
+        except Exception:
+            sheet_path = None
+        if not sheet_path or sheet_path not in zf.namelist():
+            cands = [n for n in zf.namelist() if n.startswith('xl/worksheets/') and n.endswith('.xml')]
+            sheet_path = cands[0] if cands else None
+        if not sheet_path:
+            return 0
+        n = 0
+        tail = b''
+        with zf.open(sheet_path) as f:
+            while True:
+                chunk = f.read(1 << 20)
+                if not chunk:
+                    break
+                buf = tail + chunk
+                n += len(row_re.findall(buf))
+                tail = buf[-16:]
+        return n
+    except Exception:
+        return 0
+
+
+def parse_excel(data, progress=None):
     """
-    解析 Excel，回傳 dataset。自動偵測兩種格式：
+    解析 Excel（bytes），回傳 dataset。自動偵測兩種格式：
 
     1. Hugo_by Shop_YoY（Month / Shop / …）→ kind='shop'
        rows = [月份, 店鋪, 銷量, 淨銷售, 毛利]
     2. Hugo_all_YoY（含 Brand / MCH1 / MCH2 / MC / Nature / Postal 等維度）→ kind='rich'
        rows 末端追加各分析維度索引；可用維度見 ds['dims']
+
+    progress(pct, msg)：可選進度回呼（0-100）。
     """
+    def cb(pct, msg=''):
+        if progress:
+            try:
+                progress(min(100.0, max(0.0, float(pct))), msg)
+            except Exception:
+                pass
+
+    cb(1, '讀取檔案…')
     try:
-        wb = openpyxl.load_workbook(fileobj, read_only=True, data_only=True)
+        wb = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True)
     except Exception:
         raise ValueError('無法讀取檔案，請確認為有效的 Excel (.xlsx) 檔案。')
 
     try:
+        cb(3, '尋找資料表…')
         sheet = header_i = colmap = None
         for sh in wb.worksheets:
             if getattr(sh, 'sheet_state', 'visible') != 'visible':
@@ -222,6 +294,9 @@ def parse_excel(fileobj):
         if sheet is None:
             raise ValueError(
                 '找不到資料表：檔案需包含 Month、Shop、Net Sales 欄位（Hugo_by Shop_YoY 或 Hugo_all_YoY 匯出格式）。')
+
+        total_rows = _count_rows_quick(data, sheet.title)
+        cb(6, '解析資料…')
 
         i_month = colmap['month']
         i_shop = colmap['shop']
@@ -245,7 +320,12 @@ def parse_excel(fileobj):
         months_set = set()
         dim_valuesets = {k: set() for k in ALL_DIMS}
 
+        processed = 0
         for row in sheet.iter_rows(min_row=header_i + 1, values_only=True):
+            processed += 1
+            if total_rows and processed % 2000 == 0:
+                cb(6 + 88 * min(1.0, processed / total_rows),
+                   '解析中… %s / %s 行' % (format(processed, ','), format(total_rows, ',')))
             if row is None or len(row) <= max(i_month, i_shop):
                 continue
             m = _month_str(row[i_month])
@@ -291,6 +371,7 @@ def parse_excel(fileobj):
         if not agg:
             raise ValueError('找不到有效的資料列（Month 欄位需為 YYYY-MM 格式）。')
 
+        cb(95, '對照店鋪主檔…')
         months = sorted(months_set)
         m_idx = {m: i for i, m in enumerate(months)}
 
@@ -328,6 +409,7 @@ def parse_excel(fileobj):
                 dims[k] = {'values': vals, 'pos': pos, 'idx': {v: i for i, v in enumerate(vals)}}
                 pos += 1
 
+        cb(97, '整理數據…')
         rows = []
         if not rich:
             for (m, code), (qty, sales, gp) in agg.items():
@@ -361,6 +443,7 @@ def parse_excel(fileobj):
         }
         if rich:
             ds['dims'] = {k: {'values': d['values'], 'pos': d['pos']} for k, d in dims.items()}
+        cb(99, '即將完成…')
         return ds
     finally:
         wb.close()
@@ -1134,28 +1217,12 @@ def healthz():
     return jsonify({'ok': True})
 
 
-@app.post('/api/upload')
-def api_upload():
-    f = request.files.get('file')
-    if f is None or not f.filename:
-        return jsonify({'ok': False, 'error': '未收到檔案。'}), 400
-    fn = f.filename
-    if not fn.lower().endswith(('.xlsx', '.xlsm')):
-        return jsonify({'ok': False, 'error': '只支援 .xlsx 檔案（請由 Hugo_by Shop_YoY 匯出）。'}), 400
-    try:
-        ds = parse_excel(f.stream)
-    except ValueError as e:
-        return jsonify({'ok': False, 'error': str(e)}), 400
-    except Exception as e:  # noqa: BLE001
-        app.logger.exception('parse error')
-        return jsonify({'ok': False, 'error': '解析檔案時發生錯誤：%s' % e}), 500
-
-    ds['filename'] = fn
-    ds['uploadedAt'] = datetime.now().strftime('%Y-%m-%d %H:%M')
+def _store_dataset(ds):
+    """存入記憶體（含 TTL 清理、最多保留數份），回傳 token。"""
     token = uuid.uuid4().hex
     now = time.time()
     with _LOCK:
-        # 先清走過期資料，再存入新資料（最多保留 _DATASETS_MAX 份）
+        # 先清走過期資料，再存入新資料
         if DATA_TTL_HOURS > 0:
             cutoff = now - DATA_TTL_HOURS * 3600
             for t in [x for x in _DATASET_ORDER if _TIMES.get(x, 0) < cutoff]:
@@ -1169,8 +1236,74 @@ def api_upload():
             old = _DATASET_ORDER.pop(0)
             _DATASETS.pop(old, None)
             _TIMES.pop(old, None)
-    ds.pop('_ts', None)
-    return jsonify({'ok': True, 'token': token, 'dataset': ds, 'ttlHours': DATA_TTL_HOURS})
+    return token
+
+
+def _parse_task(task_id, filename, data):
+    """背景解析任務：持續更新進度，完成後存入 _DATASETS。"""
+    def progress(pct, msg=''):
+        with _TASKS_LOCK:
+            tk = _TASKS.get(task_id)
+            if tk is not None:
+                tk['pct'] = pct
+                tk['msg'] = msg
+                tk['ts'] = time.time()
+
+    try:
+        ds = parse_excel(data, progress=progress)
+        ds['filename'] = filename
+        ds['uploadedAt'] = datetime.now().strftime('%Y-%m-%d %H:%M')
+        token = _store_dataset(ds)
+        with _TASKS_LOCK:
+            tk = _TASKS.get(task_id)
+            if tk is not None:
+                tk.update(status='done', pct=100.0, msg='完成', token=token, ds=ds, ts=time.time())
+    except ValueError as e:
+        with _TASKS_LOCK:
+            tk = _TASKS.get(task_id)
+            if tk is not None:
+                tk.update(status='error', error=str(e), ts=time.time())
+    except Exception as e:  # noqa: BLE001
+        app.logger.exception('parse error')
+        with _TASKS_LOCK:
+            tk = _TASKS.get(task_id)
+            if tk is not None:
+                tk.update(status='error', error='解析檔案時發生錯誤：%s' % e, ts=time.time())
+
+
+@app.post('/api/upload')
+def api_upload():
+    f = request.files.get('file')
+    if f is None or not f.filename:
+        return jsonify({'ok': False, 'error': '未收到檔案。'}), 400
+    fn = f.filename
+    if not fn.lower().endswith(('.xlsx', '.xlsm')):
+        return jsonify({'ok': False, 'error': '只支援 .xlsx 檔案（請由 Hugo_by Shop_YoY 匯出）。'}), 400
+    data = f.read()
+    _prune_tasks()
+    task_id = uuid.uuid4().hex
+    with _TASKS_LOCK:
+        _TASKS[task_id] = {'status': 'parsing', 'pct': 0.0, 'msg': '開始解析…', 'token': None,
+                           'ds': None, 'error': None, 'ts': time.time()}
+    threading.Thread(target=_parse_task, args=(task_id, fn, data), daemon=True).start()
+    return jsonify({'ok': True, 'taskID': task_id})
+
+
+@app.get('/api/progress/<task_id>')
+def api_progress(task_id):
+    """查詢解析進度；status = parsing / done / error。完成時一併回傳數據。"""
+    with _TASKS_LOCK:
+        tk = _TASKS.get(task_id)
+        if tk is None:
+            return jsonify({'ok': False, 'error': '任務不存在或已過期，請重新上載。'}), 404
+        resp = {'ok': True, 'status': tk['status'], 'pct': round(tk['pct'], 1), 'msg': tk.get('msg') or ''}
+        if tk['status'] == 'done':
+            resp['token'] = tk['token']
+            resp['dataset'] = tk['ds']
+            resp['ttlHours'] = DATA_TTL_HOURS
+        elif tk['status'] == 'error':
+            resp['error'] = tk.get('error') or '解析失敗'
+    return jsonify(resp)
 
 
 @app.post('/api/clear-all')

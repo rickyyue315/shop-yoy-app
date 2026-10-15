@@ -54,10 +54,18 @@
   .dz-title { font-size: 16px; font-weight: 600; }
   .dz-title .link { color: var(--accent); text-decoration: underline; }
   .dz-sub { color: var(--muted); margin-top: 6px; font-size: 12px; }
-  .busy { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 14px; color: var(--muted); }
+  .pbusy {
+    position: fixed; right: 20px; bottom: 20px; width: 380px; max-width: calc(100vw - 40px);
+    background: #fff; border: 1px solid var(--line); border-radius: 12px;
+    box-shadow: 0 12px 30px rgba(15,23,42,.18); padding: 14px 16px; z-index: 300;
+  }
+  .pbusy-row { display: flex; align-items: center; gap: 10px; color: #334155; font-size: 13px; }
+  .pbusy-row .pct { margin-left: auto; font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; }
+  .pbar { height: 8px; background: #e2e8f0; border-radius: 999px; margin-top: 10px; overflow: hidden; }
+  #pbarFill { height: 100%; width: 0%; background: linear-gradient(90deg, #3b82f6, #1d4ed8); border-radius: 999px; transition: width .25s ease; }
   .spinner {
     width: 16px; height: 16px; border: 2px solid #cbd5e1; border-top-color: var(--accent);
-    border-radius: 50%; animation: spin .8s linear infinite;
+    border-radius: 50%; animation: spin .8s linear infinite; flex: none;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
   .alert {
@@ -197,7 +205,6 @@
         <div class="dz-sub">支援 .xlsx（Hugo_by Shop_YoY 匯出檔）</div>
       </div>
       <input type="file" id="fileInput" accept=".xlsx,.xlsm" hidden>
-      <div id="uploadBusy" class="busy hidden"><div class="spinner"></div> 正在解析檔案…</div>
       <div id="uploadError" class="alert hidden"></div>
       <ul class="tips">
         <li>上載後可選擇 Site、年份、月份（及 Regional／OM 等進階篩選）</li>
@@ -320,6 +327,16 @@
     <p class="foot" id="footNote">資料只存放於本次服務的記憶體中；重新上載或服務重啟後需再次上載。</p>
   </section>
 </main>
+
+<!-- 上載解析進度（浮動卡，兩個畫面都見到） -->
+<div id="uploadBusy" class="pbusy hidden">
+  <div class="pbusy-row">
+    <div class="spinner"></div>
+    <span id="busyMsg">正在解析檔案…</span>
+    <span id="busyPct" class="pct">0%</span>
+  </div>
+  <div class="pbar"><div id="pbarFill"></div></div>
+</div>
 
 <script>
 "use strict";
@@ -920,30 +937,58 @@ function initDashboard(ds, token) {
   render();
 }
 
-/* ---------------- 上載 ---------------- */
+/* ---------------- 上載（背景解析 + 進度條） ---------------- */
+let UPLOADING = false;
+
 function showError(msg) {
   const el = $('#uploadError');
   el.textContent = msg;
   el.classList.remove('hidden');
+  // 切返上載畫面，方便即刻重試
+  $('#dashView').classList.add('hidden');
+  $('#uploadView').classList.remove('hidden');
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
+function setProgress(pct, msg) {
+  $('#pbarFill').style.width = Math.max(2, Math.min(100, pct)) + '%';
+  $('#busyPct').textContent = Math.round(pct) + '%';
+  if (msg) $('#busyMsg').textContent = msg;
+}
+
+async function pollUploadProgress(taskID) {
+  for (;;) {
+    const res = await fetch('/api/progress/' + taskID);
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok || !j.ok) throw new Error(j.error || ('HTTP ' + res.status));
+    if (j.status === 'done') { setProgress(100, '完成'); return j; }
+    if (j.status === 'error') throw new Error(j.error || '解析失敗');
+    setProgress(j.pct || 0, j.msg || '正在解析檔案…');
+    await new Promise(r => setTimeout(r, 400));
+  }
+}
+
 async function doUpload(file) {
-  if (!file) return;
+  if (!file || UPLOADING) return;
   if (!/\.(xlsx|xlsm)$/i.test(file.name)) { showError('只支援 .xlsx 檔案（請由 Hugo_by Shop_YoY 匯出）。'); return; }
+  UPLOADING = true;
   $('#uploadError').classList.add('hidden');
   $('#uploadBusy').classList.remove('hidden');
+  setProgress(0, '正在上載檔案…');
   try {
     const fd = new FormData();
     fd.append('file', file);
     const res = await fetch('/api/upload', { method: 'POST', body: fd });
     const j = await res.json().catch(() => ({}));
     if (!res.ok || !j.ok) throw new Error(j.error || ('HTTP ' + res.status));
-    TTL = j.ttlHours || 0;
-    initDashboard(j.dataset, j.token);
+    setProgress(2, '正在解析檔案…');
+    const out = await pollUploadProgress(j.taskID);
+    TTL = out.ttlHours || 0;
+    initDashboard(out.dataset, out.token);
   } catch (e) {
     showError('上載失敗：' + e.message);
   } finally {
+    UPLOADING = false;
     $('#uploadBusy').classList.add('hidden');
   }
 }
