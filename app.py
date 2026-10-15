@@ -752,7 +752,15 @@ def build_matrix_workbook(ds, opts, matrix):
     lyear = year - 1
     groupby = opts.get('groupBy') or 'shop'
     metric = opts.get('matrixMetric') or 'salesYoy'
-    kind, metric_label = MATRIX_METRICS.get(metric, ('yoy', '淨銷售 YoY%'))
+    if metric == 'all':
+        sections = [('salesYoy', '淨銷售 YoY%'), ('qtyYoy', '銷量 YoY%'),
+                    ('gpYoy', '毛利 GP$ YoY%'), ('gpPp', '毛利率 ±pp')]
+        metric_label = '全部指標（同步顯示）'
+    else:
+        _k, _label = MATRIX_METRICS.get(metric, ('yoy', '淨銷售 YoY%'))
+        sections = [(metric, _label)]
+        metric_label = _label
+    multi = len(sections) > 1
     months = matrix['months']
     ly_months = ['%d-%s' % (lyear, m[5:7]) for m in months]
 
@@ -765,7 +773,9 @@ def build_matrix_workbook(ds, opts, matrix):
     head_font = Font(bold=True, color='FFFFFF', size=11)
     head_fill = PatternFill('solid', fgColor='0F172A')
     total_fill = PatternFill('solid', fgColor='EEF2FF')
+    sub_fill = PatternFill('solid', fgColor='F1F5F9')
     na_font = Font(color='94A3B8')
+    border_sec = Border(left=Side(style='medium', color='94A3B8'), right=thin, top=thin, bottom=thin)
     center = Alignment(horizontal='center', vertical='center', wrap_text=True)
     left = Alignment(horizontal='left', vertical='center')
     right = Alignment(horizontal='right', vertical='center')
@@ -777,7 +787,9 @@ def build_matrix_workbook(ds, opts, matrix):
     _write_title_block(ws, ds, opts, months, ly_months,
                        extra_line='檢視：按月矩陣（指標：%s）' % metric_label)
 
-    h = 8  # 表頭列
+    h1 = 8  # 表頭起始列
+    h2 = h1 + 1 if multi else h1
+    first_data = h2 + 1
 
     if groupby == 'shop':
         lead = [
@@ -788,28 +800,77 @@ def build_matrix_workbook(ds, opts, matrix):
     else:
         lead = [('分組', 'label', 24), ('店鋪數', 'qty', 9)]
 
-    ncols = len(lead) + len(months) + 1
+    ncols = len(lead) + len(sections) * (len(months) + 1)
 
     # ---- 表頭 ----
-    for ci, (name, _k, _w) in enumerate(lead, start=1):
-        c = ws.cell(row=h, column=ci, value=name)
+    if multi:
+        # 第一列：店鋪資料 + 各指標區塊（合併）
+        for cc in range(1, len(lead) + 1):
+            c = ws.cell(row=h1, column=cc)
+            c.fill = head_fill
+            c.border = border
+        c = ws.cell(row=h1, column=1, value='店鋪資料' if groupby == 'shop' else '分組資料')
+        c.font = head_font
+        c.alignment = center
+        ws.merge_cells(start_row=h1, start_column=1, end_row=h1, end_column=len(lead))
+        col = len(lead) + 1
+        for _mk, mlabel in sections:
+            n_sec = len(months) + 1
+            for cc in range(col, col + n_sec):
+                c = ws.cell(row=h1, column=cc)
+                c.fill = head_fill
+                c.border = border_sec if cc == col else border
+            c = ws.cell(row=h1, column=col, value=mlabel)
+            c.font = head_font
+            c.alignment = center
+            if n_sec > 1:
+                ws.merge_cells(start_row=h1, start_column=col, end_row=h1, end_column=col + n_sec - 1)
+            col += n_sec
+        # 第二列：欄名 + 月份 + 合計
+        for ci, (name, _k, _w) in enumerate(lead, start=1):
+            c = ws.cell(row=h2, column=ci, value=name)
+            c.border = border
+            c.fill = sub_fill
+            c.font = Font(bold=True, color='334155')
+            c.alignment = center
+        col = len(lead) + 1
+        for _mk, _ml in sections:
+            first = True
+            for m in months:
+                c = ws.cell(row=h2, column=col, value=m)
+                c.border = border_sec if first else border
+                c.fill = sub_fill
+                c.font = Font(bold=True, color='334155')
+                c.alignment = center
+                first = False
+                col += 1
+            c = ws.cell(row=h2, column=col, value='合計')
+            c.border = border
+            c.fill = sub_fill
+            c.font = Font(bold=True, color='334155')
+            c.alignment = center
+            col += 1
+    else:
+        # 單一指標：單列深色表頭
+        for ci, (name, _k, _w) in enumerate(lead, start=1):
+            c = ws.cell(row=h1, column=ci, value=name)
+            c.border = border
+            c.fill = head_fill
+            c.font = head_font
+            c.alignment = center
+        col = len(lead) + 1
+        for m in months:
+            c = ws.cell(row=h1, column=col, value=m)
+            c.border = border
+            c.fill = head_fill
+            c.font = head_font
+            c.alignment = center
+            col += 1
+        c = ws.cell(row=h1, column=ncols, value='合計')
         c.border = border
         c.fill = head_fill
         c.font = head_font
         c.alignment = center
-    col = len(lead) + 1
-    for m in months:
-        c = ws.cell(row=h, column=col, value=m)
-        c.border = border
-        c.fill = head_fill
-        c.font = head_font
-        c.alignment = center
-        col += 1
-    c = ws.cell(row=h, column=ncols, value='合計')
-    c.border = border
-    c.fill = head_fill
-    c.font = head_font
-    c.alignment = center
 
     # 欄寬
     for ci, (_n, _k, w) in enumerate(lead, start=1):
@@ -843,18 +904,19 @@ def build_matrix_workbook(ds, opts, matrix):
                 c.alignment = left if k == 'label' else center
                 c.font = Font(bold=bold)
 
-    def write_cell(rr, ci, cur, ly, bold=False, fill=None):
+    def write_cell(rr, ci, cur, ly, mk, bold=False, fill=None, sec_left=False):
         c = ws.cell(row=rr, column=ci)
-        c.border = border
+        c.border = border_sec if sec_left else border
         c.alignment = right
         if fill:
             c.fill = fill
-        v = _matrix_value(cur, ly, metric)
+        v = _matrix_value(cur, ly, mk)
         if v is None:
             c.value = '—'
             c.font = na_font
             c.alignment = center
             return
+        kind = MATRIX_METRICS.get(mk, ('yoy', ''))[0]
         c.value = float(v)
         c.number_format = FMT[kind]
         if kind in ('yoy', 'pp'):
@@ -867,7 +929,7 @@ def build_matrix_workbook(ds, opts, matrix):
         else:
             c.font = Font(bold=bold)
 
-    r = h + 1
+    r = first_data
 
     # 總計列
     tot = matrix['totals']
@@ -876,24 +938,32 @@ def build_matrix_workbook(ds, opts, matrix):
              'class2': '', 'size': '', 'type': '', 'focus': False}
     write_lead(r, tot_g, bold=True, fill=total_fill)
     col = len(lead) + 1
-    for m in months:
-        write_cell(r, col, tot['cells'][m], tot['cellsLy'][m], bold=True, fill=total_fill)
+    for mk, _ml in sections:
+        first = True
+        for m in months:
+            write_cell(r, col, tot['cells'][m], tot['cellsLy'][m], mk, bold=True, fill=total_fill, sec_left=first)
+            first = False
+            col += 1
+        write_cell(r, col, tot['aggCur'], tot['aggLy'], mk, bold=True, fill=total_fill)
         col += 1
-    write_cell(r, col, tot['aggCur'], tot['aggLy'], bold=True, fill=total_fill)
     r += 1
 
     for g in matrix['groups']:
         write_lead(r, g)
         col = len(lead) + 1
-        for m in months:
-            write_cell(r, col, g['cells'][m], g['cellsLy'][m])
+        for mk, _ml in sections:
+            first = True
+            for m in months:
+                write_cell(r, col, g['cells'][m], g['cellsLy'][m], mk, sec_left=first)
+                first = False
+                col += 1
+            write_cell(r, col, g['aggCur'], g['aggLy'], mk)
             col += 1
-        write_cell(r, col, g['aggCur'], g['aggLy'])
         r += 1
 
     last_row = r - 1
-    ws.auto_filter.ref = 'A%d:%s%d' % (h, get_column_letter(ncols), last_row)
-    ws.freeze_panes = 'B%d' % (h + 1)
+    ws.auto_filter.ref = 'A%d:%s%d' % (h2, get_column_letter(ncols), last_row)
+    ws.freeze_panes = 'B%d' % first_data
 
     bio = io.BytesIO()
     wb.save(bio)

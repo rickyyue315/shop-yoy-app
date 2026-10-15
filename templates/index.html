@@ -168,6 +168,7 @@
   .scode { color: #334155; font-weight: 700; margin-right: 2px; }
   .tag { background: #f1f5f9; color: var(--muted); font-size: 10px; border-radius: 4px; padding: 1px 5px; font-weight: 400; margin-left: 4px; }
   .warnq { color: #b45309; margin-left: 4px; }
+  th.sec, td.sec { border-left: 2px solid #cbd5e1; }
   td.empty { text-align: center; color: var(--muted); padding: 36px; font-size: 14px; }
   .foot { color: var(--muted); font-size: 12px; text-align: center; margin: 6px 0 20px; }
 
@@ -235,6 +236,7 @@
           <option value="matrix">按月矩陣</option>
         </select>
         <select id="metricSel" class="hidden" title="矩陣顯示指標">
+          <option value="all">全部指標（同步顯示）</option>
           <option value="salesYoy">淨銷售 YoY%</option>
           <option value="qtyYoy">銷量 YoY%</option>
           <option value="gpYoy">毛利 GP$ YoY%</option>
@@ -464,6 +466,7 @@ function compute() {
 
 /* ---- 按月矩陣 ---- */
 const METRIC_KIND = { salesYoy: 'yoy', qtyYoy: 'yoy', gpYoy: 'yoy', gpPp: 'pp', salesVal: 'money', qtyVal: 'qty', gpVal: 'money' };
+const MATRIX_ALL = [['salesYoy', '淨銷售 YoY%'], ['qtyYoy', '銷量 YoY%'], ['gpYoy', '毛利 GP$ YoY%'], ['gpPp', '毛利率 ±pp']];
 
 function cellMetric(cur, lyv, metric) {
   if (!cur) cur = [0, 0, 0];
@@ -537,11 +540,13 @@ function computeMatrix() {
   const sk0 = state.sortKey;
   const sk = (sk0 === 'label' || sk0 === 'total' || sk0.startsWith('m:')) ? sk0 : 'total';
   const dir = state.sortDir === 'asc' ? 1 : -1;
+  // 「全部指標」模式排序用「本期淨銷售」（合計）
+  const metricForSort = state.matrixMetric === 'all' ? 'salesVal' : state.matrixMetric;
   const valOf = g => {
-    if (sk === 'total') return cellMetric(g.aggCur, g.aggLy, state.matrixMetric);
+    if (sk === 'total') return cellMetric(g.aggCur, g.aggLy, metricForSort);
     if (sk.startsWith('m:')) {
       const m = sk.slice(2);
-      return cellMetric(g.cells[m], g.cellsLy[m], state.matrixMetric);
+      return cellMetric(g.cells[m], g.cellsLy[m], metricForSort);
     }
     return null;
   };
@@ -635,48 +640,76 @@ function renderTable(rep) {
   $('#tbody').innerHTML = html;
 }
 
-function matrixCellHTML(cur, lyv, metric) {
+function matrixCellHTML(cur, lyv, metric, extra) {
   const kind = METRIC_KIND[metric] || 'yoy';
   const v = cellMetric(cur, lyv, metric);
   const tip = cellTip(cur, lyv, metric);
-  if (!isNum(v)) return `<td class="num dim" title="${esc(tip)}">—</td>`;
+  const ex = extra || '';
+  if (!isNum(v)) return `<td class="num dim${ex}" title="${esc(tip)}">—</td>`;
   if (kind === 'yoy') {
     const cls = v > 0.0005 ? ' pos' : (v < -0.0005 ? ' neg' : '');
-    return `<td class="num${cls}" title="${esc(tip)}">${v > 0 ? '+' : ''}${(v * 100).toFixed(1)}%</td>`;
+    return `<td class="num${cls}${ex}" title="${esc(tip)}">${v > 0 ? '+' : ''}${(v * 100).toFixed(1)}%</td>`;
   }
   if (kind === 'pp') {
     const d = v * 100;
     const cls = d > 0.005 ? ' pos' : (d < -0.005 ? ' neg' : '');
-    return `<td class="num${cls}" title="${esc(tip)}">${d > 0 ? '+' : ''}${d.toFixed(2)} pp</td>`;
+    return `<td class="num${cls}${ex}" title="${esc(tip)}">${d > 0 ? '+' : ''}${d.toFixed(2)} pp</td>`;
   }
-  return `<td class="num" title="${esc(tip)}">${fmtInt(v)}</td>`;
+  return `<td class="num${ex}" title="${esc(tip)}">${fmtInt(v)}</td>`;
 }
 
 function renderMatrix(mx) {
-  const metric = state.matrixMetric;
-  let head = `<tr><th class="sticky-col sortable" data-sort="label">${state.groupBy === 'shop' ? '店鋪' : '分組'}${ind('label')}</th>`;
-  for (const m of mx.selMs) {
-    const key = 'm:' + m;
-    head += `<th class="num sortable" data-sort="${key}" title="${m}（vs ${state.year - 1}${m.slice(4)}）">${m.slice(5)}${ind(key)}</th>`;
+  const isAll = state.matrixMetric === 'all';
+  const isShop = state.groupBy === 'shop';
+  const labelName = isShop ? '店鋪' : '分組';
+
+  if (!isAll) {
+    let head = `<tr><th class="sticky-col sortable" data-sort="label">${labelName}${ind('label')}</th>`;
+    for (const m of mx.selMs) {
+      const key = 'm:' + m;
+      head += `<th class="num sortable" data-sort="${key}" title="${m}（vs ${state.year - 1}${m.slice(4)}）">${m.slice(5)}${ind(key)}</th>`;
+    }
+    head += `<th class="num sortable" data-sort="total" title="所選月份合計">合計${ind('total')}</th></tr>`;
+    $('#thead').innerHTML = head;
+  } else {
+    let r1 = `<tr><th class="sticky-col sortable" rowspan="2" data-sort="label">${labelName}${ind('label')}</th>`;
+    let r2 = '<tr>';
+    for (const [mk, mlabel] of MATRIX_ALL) {
+      r1 += `<th class="mgroup sec" colspan="${mx.selMs.length + 1}">${mlabel}</th>`;
+      mx.selMs.forEach((m, i) => {
+        r2 += `<th class="num${i === 0 ? ' sec' : ''}" title="${m}（vs ${state.year - 1}${m.slice(4)}）">${m.slice(5)}</th>`;
+      });
+      r2 += '<th class="num">合計</th>';
+    }
+    r2 += '</tr>';
+    $('#thead').innerHTML = r1 + r2;
   }
-  head += `<th class="num sortable" data-sort="total" title="所選月份合計">合計${ind('total')}</th></tr>`;
+
+  // 一列的所有指標區塊（每區塊 = 各月 + 合計）
+  const cellsFor = g => {
+    const metrics = isAll ? MATRIX_ALL.map(x => x[0]) : [state.matrixMetric];
+    let html = '';
+    for (const metric of metrics) {
+      mx.selMs.forEach((m, i) => {
+        html += matrixCellHTML(g.cells[m], g.cellsLy[m], metric, (isAll && i === 0) ? ' sec' : '');
+      });
+      html += matrixCellHTML(g.aggCur, g.aggLy, metric, '');
+    }
+    return html;
+  };
 
   let html = '';
   if (!mx.list.length) {
-    html = `<tr><td class="empty" colspan="${mx.selMs.length + 2}">沒有符合條件的資料</td></tr>`;
+    const ncols = isAll ? mx.selMs.length * MATRIX_ALL.length + MATRIX_ALL.length + 1 : mx.selMs.length + 2;
+    html = `<tr><td class="empty" colspan="${ncols}">沒有符合條件的資料</td></tr>`;
   } else {
-    let tr = `<tr class="total"><td class="lead sticky-col">總計${state.groupBy === 'shop' ? '' : ` (${mx.siteCount} 間)`}</td>`;
-    for (const m of mx.selMs) tr += matrixCellHTML(mx.tm[m].cur, mx.tm[m].ly, metric);
-    tr += matrixCellHTML(mx.ta.cur, mx.ta.ly, metric) + '</tr>';
-    html = tr;
+    const totG = { cells: {}, cellsLy: {}, aggCur: mx.ta.cur, aggLy: mx.ta.ly };
+    for (const m of mx.selMs) { totG.cells[m] = mx.tm[m].cur; totG.cellsLy[m] = mx.tm[m].ly; }
+    html = `<tr class="total"><td class="lead sticky-col">總計${isShop ? '' : ` (${mx.siteCount} 間)`}</td>${cellsFor(totG)}</tr>`;
     for (const g of mx.list) {
-      let row = `<tr>${leadCellHTML(g)}`;
-      for (const m of mx.selMs) row += matrixCellHTML(g.cells[m], g.cellsLy[m], metric);
-      row += matrixCellHTML(g.aggCur, g.aggLy, metric) + '</tr>';
-      html += row;
+      html += `<tr>${leadCellHTML(g)}${cellsFor(g)}</tr>`;
     }
   }
-  $('#thead').innerHTML = head;
   $('#tbody').innerHTML = html;
 }
 
@@ -939,7 +972,13 @@ $('#viewSel').addEventListener('change', e => {
   }
   render();
 });
-$('#metricSel').addEventListener('change', e => { state.matrixMetric = e.target.value; render(); });
+$('#metricSel').addEventListener('change', e => {
+  state.matrixMetric = e.target.value;
+  if (state.matrixMetric === 'all' && state.sortKey.startsWith('m:')) {
+    state.sortKey = 'total'; state.sortDir = 'desc';
+  }
+  render();
+});
 
 $('#monthChips').addEventListener('click', e => {
   const b = e.target.closest('button.chip'); if (!b || b.disabled) return;
