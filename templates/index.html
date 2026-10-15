@@ -1,0 +1,780 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shop YoY 分析系統</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='0.9em' font-size='90'%3E%F0%9F%93%88%3C/text%3E%3C/svg%3E">
+<style>
+  :root {
+    --bg: #f1f5f9; --card: #fff; --line: #e2e8f0; --ink: #0f172a; --muted: #64748b;
+    --accent: #1d4ed8; --accent-2: #eef2ff; --up: #047857; --down: #b91c1c;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, -apple-system, "Segoe UI", sans-serif;
+    background: var(--bg); color: var(--ink); font-size: 14px;
+  }
+  .hidden { display: none !important; }
+  .muted { color: var(--muted); font-size: 12px; }
+
+  nav {
+    background: #0f172a; color: #fff; display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 20px; position: sticky; top: 0; z-index: 100;
+  }
+  nav .brand { font-size: 16px; font-weight: 700; letter-spacing: .3px; }
+  nav .brand small { font-weight: 400; color: #94a3b8; margin-left: 8px; font-size: 12px; }
+  nav .nav-right { display: flex; align-items: center; gap: 10px; }
+  .nav-status { font-size: 12px; color: #cbd5e1; max-width: 46vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .btn {
+    border: 1px solid var(--line); background: #fff; color: var(--ink); border-radius: 8px;
+    padding: 7px 14px; font-size: 13px; cursor: pointer; font-family: inherit;
+  }
+  .btn:hover { background: #f8fafc; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  .btn.primary:hover { background: #1e40af; }
+  .btn.primary:disabled { opacity: .6; cursor: default; }
+  .btn.ghost { background: transparent; color: #fff; border-color: #475569; }
+  .btn.ghost:hover { background: #1e293b; }
+
+  main { max-width: 1520px; margin: 0 auto; padding: 20px; }
+
+  /* ---------- 上載頁 ---------- */
+  #uploadView { display: flex; justify-content: center; padding-top: 6vh; }
+  .upload-card { width: 640px; max-width: 100%; }
+  .dropzone {
+    background: var(--card); border: 2px dashed #cbd5e1; border-radius: 16px; padding: 46px 24px;
+    text-align: center; cursor: pointer; transition: border-color .15s, background .15s;
+  }
+  .dropzone:hover, .dropzone.drag { border-color: var(--accent); background: #f8faff; }
+  .dz-icon { font-size: 40px; margin-bottom: 10px; }
+  .dz-title { font-size: 16px; font-weight: 600; }
+  .dz-title .link { color: var(--accent); text-decoration: underline; }
+  .dz-sub { color: var(--muted); margin-top: 6px; font-size: 12px; }
+  .busy { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 14px; color: var(--muted); }
+  .spinner {
+    width: 16px; height: 16px; border: 2px solid #cbd5e1; border-top-color: var(--accent);
+    border-radius: 50%; animation: spin .8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .alert {
+    margin-top: 14px; background: #fdecec; color: #b91c1c; border: 1px solid #fecaca;
+    border-radius: 10px; padding: 10px 14px; font-size: 13px;
+  }
+  .tips { margin: 18px 4px 0; padding: 0; list-style: none; color: var(--muted); font-size: 13px; line-height: 2; }
+  .tips li::before { content: "✓ "; color: var(--up); font-weight: 700; }
+
+  /* ---------- 儀表板 ---------- */
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; margin-bottom: 14px; }
+  .filters { padding: 12px 16px 6px; }
+  .frow { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 7px 0; border-bottom: 1px dashed #eef2f7; }
+  .frow:last-child { border-bottom: none; }
+  .frow > label { color: #334155; font-weight: 600; font-size: 13px; min-width: 56px; }
+  .sep { width: 1px; height: 20px; background: var(--line); margin: 0 6px; }
+  .mini a { color: var(--accent); cursor: pointer; font-size: 12px; text-decoration: none; }
+  .mini a:hover { text-decoration: underline; }
+  select {
+    font-family: inherit; font-size: 13px; padding: 5px 8px; border-radius: 8px;
+    border: 1px solid var(--line); background: #fff; color: var(--ink);
+  }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .chip {
+    font-family: inherit; font-size: 12px; padding: 3px 11px; border-radius: 999px;
+    border: 1px solid var(--line); background: #fff; color: #475569; cursor: pointer;
+  }
+  .chip:hover:not(:disabled) { border-color: #94a3b8; }
+  .chip.on { background: var(--accent-2); border-color: #c7d2fe; color: #3730a3; font-weight: 600; }
+  .chip:disabled { opacity: .3; cursor: default; }
+  .chk { font-size: 13px; color: #334155; display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
+  .chk input { accent-color: var(--accent); }
+  details.adv summary { cursor: pointer; color: var(--accent); font-size: 13px; padding: 8px 0 2px; user-select: none; }
+  details.adv[open] summary { font-weight: 600; }
+
+  /* 店鋪 multi-select */
+  .ms { position: relative; }
+  .ms-btn {
+    font-family: inherit; font-size: 13px; padding: 6px 12px; border-radius: 8px; border: 1px solid var(--line);
+    background: #fff; cursor: pointer; color: var(--ink);
+  }
+  .ms-btn:hover { border-color: #94a3b8; }
+  .ms-panel {
+    position: absolute; top: calc(100% + 6px); left: 0; width: 440px; max-width: 88vw; background: #fff;
+    border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 12px 30px rgba(15,23,42,.14);
+    z-index: 90; padding: 10px;
+  }
+  .ms-search { width: 100%; font-family: inherit; font-size: 13px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; }
+  .ms-actions { display: flex; align-items: center; gap: 12px; padding: 8px 2px; font-size: 12px; }
+  .ms-actions a { color: var(--accent); cursor: pointer; }
+  .ms-actions a:hover { text-decoration: underline; }
+  .ms-list { max-height: 300px; overflow: auto; border-top: 1px solid #eef2f7; }
+  .ms-item { display: flex; align-items: center; gap: 8px; padding: 5px 6px; cursor: pointer; border-radius: 6px; font-size: 13px; }
+  .ms-item:hover { background: #f8fafc; }
+  .ms-item input { accent-color: var(--accent); }
+  .ms-code { font-weight: 700; min-width: 46px; }
+  .ms-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ms-meta { color: var(--muted); font-size: 11px; }
+  .ms-none { padding: 10px; }
+
+  /* 警告 */
+  .warn {
+    background: #fffbeb; border: 1px solid #fde68a; color: #92400e; border-radius: 10px;
+    padding: 9px 14px; font-size: 13px; margin-bottom: 14px;
+  }
+
+  /* 摘要卡 */
+  .cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 14px; }
+  .metric { margin-bottom: 0; }
+  .m-label { color: var(--muted); font-size: 12px; font-weight: 600; }
+  .m-value { font-size: 26px; font-weight: 700; margin: 4px 0 4px; font-variant-numeric: tabular-nums; }
+  .m-sub { color: var(--muted); font-size: 12px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .badge { padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .badge.pos { background: #e7f6ec; color: var(--up); }
+  .badge.neg { background: #fdecec; color: var(--down); }
+  .badge.flat { background: #f1f5f9; color: var(--muted); }
+
+  /* 表格 */
+  .table-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+  .period { font-weight: 700; font-size: 13.5px; }
+  .table-wrap { overflow: auto; max-height: 68vh; border: 1px solid #eef2f7; border-radius: 8px; }
+  table { border-collapse: separate; border-spacing: 0; width: 100%; }
+  thead th {
+    position: sticky; background: #f8fafc; z-index: 3; border-bottom: 1px solid var(--line);
+    font-size: 12px; color: #475569; padding: 6px 10px; white-space: nowrap; font-weight: 600;
+  }
+  thead tr:nth-child(1) th { top: 0; height: 30px; }
+  thead tr:nth-child(2) th { top: 30px; border-bottom: 2px solid var(--line); }
+  thead th.mgroup { background: #0f172a; color: #fff; text-align: center; }
+  thead th.num { text-align: right; }
+  thead th.sortable { cursor: pointer; user-select: none; }
+  thead th.sortable:hover { background: #eef2f7; }
+  .ind { color: var(--accent); font-size: 10px; margin-left: 2px; }
+  tbody td { border-bottom: 1px solid #f1f5f9; padding: 6px 10px; white-space: nowrap; font-size: 13px; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  td.lead { text-align: left; font-weight: 600; max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+  td.dim, td.dimv { color: #94a3b8; }
+  td.pos { color: var(--up); font-weight: 600; }
+  td.neg { color: var(--down); font-weight: 600; }
+  tr.total td { font-weight: 700; background: #eef2ff; border-bottom: 2px solid #c7d2fe; }
+  tr:hover td { background: #f8fafc; }
+  tr.total:hover td { background: #eef2ff; }
+  .sticky-col { position: sticky; left: 0; background: #fff; z-index: 2; }
+  thead .sticky-col { z-index: 4; background: #f8fafc; }
+  tr.total .sticky-col { background: #eef2ff; }
+  tr:hover .sticky-col { background: #f8fafc; }
+  tr.total:hover .sticky-col { background: #eef2ff; }
+  .scode { color: #334155; font-weight: 700; margin-right: 2px; }
+  .tag { background: #f1f5f9; color: var(--muted); font-size: 10px; border-radius: 4px; padding: 1px 5px; font-weight: 400; margin-left: 4px; }
+  .warnq { color: #b45309; margin-left: 4px; }
+  td.empty { text-align: center; color: var(--muted); padding: 36px; font-size: 14px; }
+  .foot { color: var(--muted); font-size: 12px; text-align: center; margin: 6px 0 20px; }
+
+  @media (max-width: 1100px) { .cards { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 640px) { .cards { grid-template-columns: 1fr; } .nav-status { display: none; } }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="brand">Shop YoY 分析系統 <small>Shop YoY Report</small></div>
+  <div class="nav-right">
+    <span id="navStatus" class="nav-status hidden"></span>
+    <button id="btnReload" class="btn ghost hidden">重新上載</button>
+  </div>
+</nav>
+
+<main>
+  <!-- ============ 上載檢視 ============ -->
+  <section id="uploadView">
+    <div class="upload-card">
+      <div id="dropzone" class="dropzone">
+        <div class="dz-icon">📄</div>
+        <div class="dz-title">拖放 Excel 到此處，或 <span class="link">點擊選擇檔案</span></div>
+        <div class="dz-sub">支援 .xlsx（Hugo_by Shop_YoY 匯出檔）</div>
+      </div>
+      <input type="file" id="fileInput" accept=".xlsx,.xlsm" hidden>
+      <div id="uploadBusy" class="busy hidden"><div class="spinner"></div> 正在解析檔案…</div>
+      <div id="uploadError" class="alert hidden"></div>
+      <ul class="tips">
+        <li>上載後可選擇 Site、年份、月份（及 Regional／OM 等進階篩選）</li>
+        <li>自動對照內置 stores-template 店鋪主檔，計算同期 YoY%</li>
+        <li>可將篩選結果下載成 Excel 報告</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ============ 儀表板 ============ -->
+  <section id="dashView" class="hidden">
+    <div class="card filters">
+      <div class="frow">
+        <label>年份</label>
+        <select id="yearSel"></select>
+        <span class="sep"></span>
+        <label>月份</label>
+        <div id="monthChips" class="chips"></div>
+        <span class="mini"><a id="btnMonthsAll">全選</a> · <a id="btnMonthsClear">清除</a></span>
+        <span class="sep"></span>
+        <label>分組</label>
+        <select id="groupSel">
+          <option value="shop">店鋪</option>
+          <option value="regional">Regional</option>
+          <option value="om">OM</option>
+          <option value="class1">Class 1</option>
+          <option value="class2">Class 2</option>
+          <option value="size">Size</option>
+          <option value="type">Type</option>
+        </select>
+      </div>
+      <div class="frow">
+        <label>店鋪</label>
+        <div class="ms" id="siteMS">
+          <button id="btnSite" class="ms-btn">全部店鋪 ▾</button>
+          <div id="sitePanel" class="ms-panel hidden">
+            <input id="siteSearch" class="ms-search" placeholder="搜尋 Site／店名…">
+            <div class="ms-actions">
+              <a id="btnSitesAll">全選</a><a id="btnSitesClear">清除</a>
+              <span id="siteCount" class="muted"></span>
+            </div>
+            <div id="siteList" class="ms-list"></div>
+          </div>
+        </div>
+        <span id="siteSummary" class="muted"></span>
+      </div>
+      <details class="adv">
+        <summary>進階篩選（Regional／OM／店類等）</summary>
+        <div class="frow"><label>Regional</label><div id="chipsRegional" class="chips"></div>
+          <span class="sep"></span><label>OM</label><div id="chipsOM" class="chips"></div></div>
+        <div class="frow"><label>Class 1</label><div id="chipsClass1" class="chips"></div>
+          <span class="sep"></span><label>Class 2</label><div id="chipsClass2" class="chips"></div></div>
+        <div class="frow"><label>Size</label><div id="chipsSize" class="chips"></div>
+          <span class="sep"></span><label>Type</label><div id="chipsType" class="chips"></div></div>
+        <div class="frow"><label>其他</label>
+          <label class="chk"><input type="checkbox" id="chkFocus"> 只顯示「需特別關注」店鋪</label>
+          <label class="chk"><input type="checkbox" id="chkTemplate"> 只顯示 stores-template 內店鋪</label>
+          <label class="chk"><input type="checkbox" id="chkHideEmpty" checked> 隱藏無數據店鋪</label>
+        </div>
+      </details>
+    </div>
+
+    <div id="warnLatest" class="warn hidden"></div>
+
+    <div class="cards">
+      <div class="card metric">
+        <div class="m-label">淨銷售</div>
+        <div class="m-value" id="vSales">—</div>
+        <div class="m-sub">去年：<span id="lSales">—</span> <span class="badge flat" id="bSales">—</span></div>
+      </div>
+      <div class="card metric">
+        <div class="m-label">銷量</div>
+        <div class="m-value" id="vQty">—</div>
+        <div class="m-sub">去年：<span id="lQty">—</span> <span class="badge flat" id="bQty">—</span></div>
+      </div>
+      <div class="card metric">
+        <div class="m-label">毛利 GP$</div>
+        <div class="m-value" id="vGp">—</div>
+        <div class="m-sub">去年：<span id="lGp">—</span> <span class="badge flat" id="bGp">—</span></div>
+      </div>
+      <div class="card metric">
+        <div class="m-label">毛利率</div>
+        <div class="m-value" id="vPct">—</div>
+        <div class="m-sub">去年：<span id="lPct">—</span> <span class="badge flat" id="bPct">—</span></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="table-head">
+        <div><span id="periodLabel" class="period"></span> <span id="tableMeta" class="muted"></span></div>
+        <button id="btnExport" class="btn primary">⬇ 下載 Excel</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead id="thead"></thead>
+          <tbody id="tbody"></tbody>
+        </table>
+      </div>
+    </div>
+    <p class="foot">資料只存放於本次服務的記憶體中；重新上載或服務重啟後需再次上載。</p>
+  </section>
+</main>
+
+<script>
+"use strict";
+const $ = s => document.querySelector(s);
+const ATTRS = ['regional', 'om', 'class1', 'class2', 'size', 'type'];
+const ATTR_CHIP_ID = { regional: 'chipsRegional', om: 'chipsOM', class1: 'chipsClass1', class2: 'chipsClass2', size: 'chipsSize', type: 'chipsType' };
+
+let DS = null, TOKEN = null;
+
+const state = {
+  year: null, months: new Set(), sites: new Set(),
+  regional: new Set(), om: new Set(), class1: new Set(), class2: new Set(), size: new Set(), type: new Set(),
+  focusOnly: false, templateOnly: false, hideEmpty: true,
+  groupBy: 'shop', sortKey: 'curSales', sortDir: 'desc'
+};
+
+/* ---------------- 格式化 ---------------- */
+const nfInt = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 });
+const isNum = v => v !== null && v !== undefined && isFinite(v);
+function fmtInt(v) { return isNum(v) ? nfInt.format(Math.round(v)) : '—'; }
+function esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+function yoyVal(cur, ly) { return (isNum(ly) && ly > 0 && isNum(cur)) ? (cur - ly) / ly : null; }
+function yoyHTML(cur, ly) {
+  const v = yoyVal(cur, ly);
+  if (v === null) return '<td class="num dim">—</td>';
+  const cls = v > 0.0005 ? 'pos' : (v < -0.0005 ? 'neg' : '');
+  return `<td class="num ${cls}">${v > 0 ? '+' : ''}${(v * 100).toFixed(1)}%</td>`;
+}
+function pctHTML(v) {
+  return isNum(v) ? `<td class="num">${(v * 100).toFixed(2)}%</td>` : '<td class="num dim">—</td>';
+}
+function ppHTML(pc, pl) {
+  if (!isNum(pc) || !isNum(pl)) return '<td class="num dim">—</td>';
+  const d = (pc - pl) * 100;
+  const cls = d > 0.005 ? 'pos' : (d < -0.005 ? 'neg' : '');
+  return `<td class="num ${cls}">${d > 0 ? '+' : ''}${d.toFixed(2)} pp</td>`;
+}
+function monthsLabel(ms, year) {
+  if (!ms.length) return '（未選擇）';
+  const nums = [...new Set(ms.map(m => +m.slice(5)))].sort((a, b) => a - b);
+  const two = n => String(n).padStart(2, '0');
+  const ranges = []; let s = nums[0], p = nums[0];
+  for (let i = 1; i < nums.length; i++) {
+    if (nums[i] === p + 1) p = nums[i]; else { ranges.push([s, p]); s = p = nums[i]; }
+  }
+  ranges.push([s, p]);
+  return ranges.map(([a, b]) =>
+    a === b ? `${year}-${two(a)}`
+      : (b === a + 1 ? `${year}-${two(a)}、${year}-${two(b)}`
+        : `${year}-${two(a)} 至 ${year}-${two(b)}`)).join('、');
+}
+
+/* ---------------- 計算 ---------------- */
+function compute() {
+  const year = state.year, ly = year - 1, G = state.groupBy;
+  const sites = DS.sites, rows = DS.rows, months = DS.months;
+  const sel = state.months;
+  const lysel = new Set([...sel].map(m => `${ly}-${m.slice(5)}`));
+
+  const pass = sites.map(() => false);
+  const attrPass = s => {
+    for (const k of ATTRS) {
+      const set = state[k];
+      if (set.size && !set.has(s[k] || '')) return false;
+    }
+    if (state.focusOnly && !s.focus) return false;
+    if (state.templateOnly && !s.inTemplate) return false;
+    return true;
+  };
+  sites.forEach((s, i) => { pass[i] = state.sites.has(i) && attrPass(s); });
+
+  const groups = new Map();
+  const gkey = (s, i) => G === 'shop' ? 'i' + i : ((s[G] && String(s[G]).trim()) || '（未分類）');
+  sites.forEach((s, i) => {
+    if (!pass[i]) return;
+    const k = gkey(s, i);
+    let g = groups.get(k);
+    if (!g) {
+      g = {
+        label: G === 'shop' ? (s.code + (s.name ? ' ' + s.name : '')) : k,
+        n: 0, cur: [0, 0, 0], ly: [0, 0, 0],
+        site: G === 'shop' ? s : null
+      };
+      groups.set(k, g);
+    }
+    g.n++;
+  });
+
+  for (const r of rows) {
+    const si = r[1];
+    if (!pass[si]) continue;
+    const m = months[r[0]];
+    let t = null;
+    if (sel.has(m)) t = 'cur'; else if (lysel.has(m)) t = 'ly';
+    if (!t) continue;
+    const g = groups.get(gkey(sites[si], si));
+    if (!g) continue;
+    const a = g[t];
+    a[0] += r[2]; a[1] += r[3]; a[2] += r[4];
+  }
+
+  let list = [...groups.values()];
+  if (state.hideEmpty) {
+    list = list.filter(g => g.cur[0] || g.cur[1] || g.cur[2] || g.ly[0] || g.ly[1] || g.ly[2]);
+  }
+
+  const sk = state.sortKey, dir = state.sortDir === 'asc' ? 1 : -1;
+  const metrics = g => {
+    const s = g.cur[1], q = g.cur[0], p = g.cur[2];
+    const pc = s ? p / s : null, pl = g.ly[1] ? g.ly[2] / g.ly[1] : null;
+    return {
+      curSales: s, yoySales: yoyVal(s, g.ly[1]),
+      curQty: q, yoyQty: yoyVal(q, g.ly[0]),
+      curGp: p, yoyGp: yoyVal(p, g.ly[2]),
+      curGpPct: pc, dGpPct: (pc !== null && pl !== null) ? pc - pl : null
+    };
+  };
+  list.sort((a, b) => {
+    if (sk === 'label') return dir * a.label.localeCompare(b.label, 'zh-Hant');
+    const av = metrics(a)[sk], bv = metrics(b)[sk];
+    const an = !isNum(av), bn = !isNum(bv);
+    if (an && bn) return a.label.localeCompare(b.label, 'zh-Hant');
+    if (an) return 1;
+    if (bn) return -1;
+    return dir * (av - bv);
+  });
+
+  const totals = { cur: [0, 0, 0], ly: [0, 0, 0] };
+  for (const g of list) {
+    for (let j = 0; j < 3; j++) { totals.cur[j] += g.cur[j]; totals.ly[j] += g.ly[j]; }
+  }
+  const siteCount = pass.filter(Boolean).length;
+  return { list, totals, siteCount };
+}
+
+/* ---------------- 畫面 ---------------- */
+const METRIC_DEFS = [
+  { title: '淨銷售', subs: [['本期', 'curSales'], ['去年同期', null], ['YoY%', 'yoySales']] },
+  { title: '銷量', subs: [['本期', 'curQty'], ['去年同期', null], ['YoY%', 'yoyQty']] },
+  { title: '毛利 GP$', subs: [['本期', 'curGp'], ['去年同期', null], ['YoY%', 'yoyGp']] },
+  { title: '毛利率', subs: [['本期', 'curGpPct'], ['去年', null], ['± pp', 'dGpPct']] }
+];
+
+function ind(key) {
+  if (state.sortKey !== key) return '';
+  return `<span class="ind">${state.sortDir === 'desc' ? '▼' : '▲'}</span>`;
+}
+
+function renderHead() {
+  const lead = `<th class="sticky-col sortable" rowspan="2" data-sort="label">${state.groupBy === 'shop' ? '店鋪' : '分組'}${ind('label')}</th>`;
+  let r1 = '';
+  for (const md of METRIC_DEFS) r1 += `<th colspan="3" class="mgroup">${md.title}</th>`;
+  let r2 = '';
+  for (const md of METRIC_DEFS) {
+    for (const [name, key] of md.subs) {
+      r2 += key
+        ? `<th class="num sortable" data-sort="${key}">${name}${ind(key)}</th>`
+        : `<th class="num">${name}</th>`;
+    }
+  }
+  $('#thead').innerHTML = `<tr>${lead}${r1}</tr><tr>${r2}</tr>`;
+}
+
+function rowHTML(g, isTotal) {
+  const s = g.cur[1], lyS = g.ly[1], q = g.cur[0], lyQ = g.ly[0], p = g.cur[2], lyP = g.ly[2];
+  const pc = s ? p / s : null, pl = lyS ? lyP / lyS : null;
+  let lead;
+  if (state.groupBy === 'shop') {
+    const site = g.site;
+    const title = site ? [site.code, site.name, site.regional,
+      [site.class1, site.class2].filter(Boolean).join('/'), site.size, site.om, site.type]
+      .filter(Boolean).join(' · ') : '';
+    const warn = site && site.focus ? ' <span class="warnq" title="需特別關注">⚠</span>' : '';
+    const tag = site && !site.inTemplate ? ' <span class="tag">模板外</span>' : '';
+    lead = `<td class="lead sticky-col" title="${esc(title)}"><span class="scode">${esc(site ? site.code : '')}</span>${esc(site ? site.name : '')}${warn}${tag}</td>`;
+  } else {
+    lead = `<td class="lead sticky-col">${esc(g.label)} <span class="muted">(${g.n} 間)</span></td>`;
+  }
+  return `<tr${isTotal ? ' class="total"' : ''}>${lead}
+    <td class="num">${fmtInt(s)}</td><td class="num dimv">${fmtInt(lyS)}</td>${yoyHTML(s, lyS)}
+    <td class="num">${fmtInt(q)}</td><td class="num dimv">${fmtInt(lyQ)}</td>${yoyHTML(q, lyQ)}
+    <td class="num">${fmtInt(p)}</td><td class="num dimv">${fmtInt(lyP)}</td>${yoyHTML(p, lyP)}
+    ${pctHTML(pc)}${pctHTML(pl)}${ppHTML(pc, pl)}</tr>`;
+}
+
+function renderTable(rep) {
+  renderHead();
+  const { list, totals, siteCount } = rep;
+  let html = '';
+  if (!list.length) {
+    html = '<tr><td class="empty" colspan="13">沒有符合條件的資料</td></tr>';
+  } else {
+    const totG = state.groupBy === 'shop'
+      ? { label: '總計', n: siteCount, cur: totals.cur, ly: totals.ly, site: null }
+      : { label: '總計', n: siteCount, cur: totals.cur, ly: totals.ly, site: null };
+    html += rowHTML(totG, true);
+    for (const g of list) html += rowHTML(g, false);
+  }
+  $('#tbody').innerHTML = html;
+}
+
+function updateCards(totals) {
+  const set = (id, cur, ly) => {
+    $('#v' + id).textContent = fmtInt(cur);
+    $('#l' + id).textContent = fmtInt(ly);
+    const b = $('#b' + id), v = yoyVal(cur, ly);
+    if (v === null) { b.className = 'badge flat'; b.textContent = '—'; }
+    else {
+      b.className = 'badge ' + (v > 0.0005 ? 'pos' : (v < -0.0005 ? 'neg' : 'flat'));
+      b.textContent = (v > 0 ? '+' : '') + (v * 100).toFixed(1) + '%';
+    }
+  };
+  set('Sales', totals.cur[1], totals.ly[1]);
+  set('Qty', totals.cur[0], totals.ly[0]);
+  set('Gp', totals.cur[2], totals.ly[2]);
+
+  const pc = totals.cur[1] ? totals.cur[2] / totals.cur[1] : null;
+  const pl = totals.ly[1] ? totals.ly[2] / totals.ly[1] : null;
+  $('#vPct').textContent = isNum(pc) ? (pc * 100).toFixed(2) + '%' : '—';
+  $('#lPct').textContent = isNum(pl) ? (pl * 100).toFixed(2) + '%' : '—';
+  const b = $('#bPct');
+  if (isNum(pc) && isNum(pl)) {
+    const d = (pc - pl) * 100;
+    b.className = 'badge ' + (d > 0.005 ? 'pos' : (d < -0.005 ? 'neg' : 'flat'));
+    b.textContent = (d > 0 ? '+' : '') + d.toFixed(2) + ' pp';
+  } else { b.className = 'badge flat'; b.textContent = '—'; }
+}
+
+function render() {
+  const rep = compute();
+  updateCards(rep.totals);
+
+  const sel = [...state.months].sort();
+  const n = sel.length;
+  $('#periodLabel').textContent = n
+    ? `比較期間：${monthsLabel(sel, state.year)}（共 ${n} 個月）  vs  ${monthsLabel(sel.map(m => `${state.year - 1}-${m.slice(5)}`), state.year - 1)}`
+    : '請選擇至少一個月份';
+
+  $('#tableMeta').textContent = state.groupBy === 'shop'
+    ? `· ${rep.list.length} 間店鋪`
+    : `· ${rep.list.length} 個分組（共 ${rep.siteCount} 間店鋪）`;
+
+  const latest = DS.latestMonth;
+  const warn = $('#warnLatest');
+  if (latest && latest.slice(0, 4) === String(state.year) && state.months.has(latest)) {
+    warn.textContent = `⚠️ ${latest} 可能為不完整月份（若為本月進行中的資料），與去年同月比較時 YoY 數字請斟酌參考。`;
+    warn.classList.remove('hidden');
+  } else warn.classList.add('hidden');
+
+  renderTable(rep);
+}
+
+/* ---------------- 篩選元件 ---------------- */
+function updateSiteBtn() {
+  const total = DS.sites.length, sel = state.sites.size;
+  const btn = $('#btnSite');
+  btn.textContent = (sel === total ? `全部店鋪（${total}） ` : (sel === 0 ? '未選擇店鋪 ' : `已選 ${sel}／${total} 店鋪 `)) + '▾';
+  $('#siteSummary').textContent = sel === total ? `全部（${total}）` : `已選 ${sel}／${total}`;
+  $('#siteCount').textContent = `已選 ${sel}／${total}`;
+}
+
+function renderSites(filterText) {
+  const q = (filterText || '').toLowerCase();
+  const html = DS.sites.map((s, i) => {
+    if (q && !(s.code.toLowerCase().includes(q) || (s.name || '').toLowerCase().includes(q))) return '';
+    const meta = [s.regional, s.om, s.class2, s.size].filter(Boolean).join(' · ');
+    const warn = s.focus ? ' <span class="warnq" title="需特別關注">⚠</span>' : '';
+    return `<label class="ms-item"><input type="checkbox" data-i="${i}" ${state.sites.has(i) ? 'checked' : ''}>
+      <span class="ms-code">${esc(s.code)}</span><span class="ms-name">${esc(s.name || '')}${warn}</span>
+      <span class="ms-meta">${esc(meta)}</span></label>`;
+  }).join('');
+  $('#siteList').innerHTML = html || '<div class="ms-none muted">沒有符合的店鋪</div>';
+}
+
+function buildMonthChips() {
+  const year = state.year;
+  const avail = new Set((DS.years[String(year)] || []));
+  state.months = new Set([...avail]);   // 轉年份時預設全選該年有資料的月份
+  let html = '';
+  for (let i = 1; i <= 12; i++) {
+    const m = `${year}-${String(i).padStart(2, '0')}`;
+    const has = avail.has(m);
+    html += `<button class="chip ${has ? 'on' : ''}" data-m="${m}" title="${m}" ${has ? '' : 'disabled'}>${String(i).padStart(2, '0')}</button>`;
+  }
+  $('#monthChips').innerHTML = html;
+}
+
+function buildAttrChips() {
+  for (const k of ATTRS) {
+    const vals = [...new Set(DS.sites.map(s => (s[k] || '').trim()).filter(Boolean))]
+      .sort((a, b) => a.localeCompare(b, 'zh-Hant'));
+    $('#' + ATTR_CHIP_ID[k]).innerHTML = vals.length
+      ? vals.map(v => `<button class="chip ${state[k].has(v) ? 'on' : ''}" data-k="${k}" data-v="${esc(v)}">${esc(v)}</button>`).join('')
+      : '<span class="muted">—</span>';
+  }
+}
+
+function resetSort() { state.sortKey = 'curSales'; state.sortDir = 'desc'; }
+
+/* ---------------- 初始化 ---------------- */
+function initDashboard(ds, token) {
+  DS = ds; TOKEN = token;
+  state.sites = new Set(ds.sites.map((_, i) => i));
+  for (const k of ATTRS) state[k] = new Set();
+  state.focusOnly = false; state.templateOnly = false; state.hideEmpty = true;
+  state.groupBy = 'shop'; state.sortKey = 'curSales'; state.sortDir = 'desc';
+  $('#groupSel').value = 'shop';
+  $('#chkFocus').checked = false;
+  $('#chkTemplate').checked = false;
+  $('#chkHideEmpty').checked = true;
+
+  const years = Object.keys(ds.years).sort().reverse();
+  $('#yearSel').innerHTML = years.map(y => `<option value="${y}">${y}</option>`).join('');
+  state.year = +years[0];
+
+  $('#navStatus').textContent = `已載入：${ds.filename} · 上載時間 ${ds.uploadedAt} · ${ds.sites.length} 間店 · ${ds.months.length} 個月`;
+  $('#navStatus').classList.remove('hidden');
+  $('#btnReload').classList.remove('hidden');
+  $('#uploadView').classList.add('hidden');
+  $('#dashView').classList.remove('hidden');
+
+  buildMonthChips();
+  buildAttrChips();
+  renderSites('');
+  updateSiteBtn();
+  render();
+}
+
+/* ---------------- 上載 ---------------- */
+function showError(msg) {
+  const el = $('#uploadError');
+  el.textContent = msg;
+  el.classList.remove('hidden');
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+async function doUpload(file) {
+  if (!file) return;
+  if (!/\.(xlsx|xlsm)$/i.test(file.name)) { showError('只支援 .xlsx 檔案（請由 Hugo_by Shop_YoY 匯出）。'); return; }
+  $('#uploadError').classList.add('hidden');
+  $('#uploadBusy').classList.remove('hidden');
+  try {
+    const fd = new FormData();
+    fd.append('file', file);
+    const res = await fetch('/api/upload', { method: 'POST', body: fd });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok || !j.ok) throw new Error(j.error || ('HTTP ' + res.status));
+    initDashboard(j.dataset, j.token);
+  } catch (e) {
+    showError('上載失敗：' + e.message);
+  } finally {
+    $('#uploadBusy').classList.add('hidden');
+  }
+}
+
+/* ---------------- 匯出 ---------------- */
+function collectOpts() {
+  return {
+    year: state.year,
+    months: [...state.months].sort(),
+    siteCodes: state.sites.size === DS.sites.length ? null : [...state.sites].map(i => DS.sites[i].code),
+    regional: [...state.regional], om: [...state.om], class1: [...state.class1],
+    class2: [...state.class2], size: [...state.size], type: [...state.type],
+    focusOnly: state.focusOnly, templateOnly: state.templateOnly, hideEmpty: state.hideEmpty,
+    groupBy: state.groupBy
+  };
+}
+
+async function exportXlsx() {
+  if (!DS || !state.months.size) { alert('請先選擇年份及至少一個月份。'); return; }
+  const btn = $('#btnExport');
+  btn.disabled = true; btn.textContent = '產生中…';
+  try {
+    const res = await fetch(`/api/export/${TOKEN}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(collectOpts())
+    });
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      throw new Error(j.error || ('HTTP ' + res.status));
+    }
+    const blob = await res.blob();
+    const cd = res.headers.get('Content-Disposition') || '';
+    let name = `Shop_YoY_${state.year}.xlsx`;
+    const mm = cd.match(/filename\*=UTF-8''([^;]+)/i) || cd.match(/filename="?([^";]+)"?/i);
+    if (mm) { try { name = decodeURIComponent(mm[1]); } catch (e) { name = mm[1]; } }
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+  } catch (e) {
+    alert('匯出失敗：' + e.message);
+  } finally {
+    btn.disabled = false; btn.textContent = '⬇ 下載 Excel';
+  }
+}
+
+/* ---------------- 事件 ---------------- */
+$('#dropzone').addEventListener('click', () => $('#fileInput').click());
+$('#dropzone').addEventListener('dragover', e => { e.preventDefault(); $('#dropzone').classList.add('drag'); });
+$('#dropzone').addEventListener('dragleave', () => $('#dropzone').classList.remove('drag'));
+$('#dropzone').addEventListener('drop', e => {
+  e.preventDefault();
+  $('#dropzone').classList.remove('drag');
+  if (e.dataTransfer.files.length) doUpload(e.dataTransfer.files[0]);
+});
+$('#fileInput').addEventListener('change', e => { if (e.target.files.length) doUpload(e.target.files[0]); e.target.value = ''; });
+$('#btnReload').addEventListener('click', () => $('#fileInput').click());
+
+$('#yearSel').addEventListener('change', e => { state.year = +e.target.value; resetSort(); buildMonthChips(); render(); });
+$('#groupSel').addEventListener('change', e => { state.groupBy = e.target.value; resetSort(); render(); });
+
+$('#monthChips').addEventListener('click', e => {
+  const b = e.target.closest('button.chip'); if (!b || b.disabled) return;
+  const m = b.dataset.m;
+  if (state.months.has(m)) state.months.delete(m); else state.months.add(m);
+  b.classList.toggle('on', state.months.has(m));
+  render();
+});
+$('#btnMonthsAll').addEventListener('click', () => {
+  state.months = new Set(DS.years[String(state.year)] || []);
+  buildMonthChipsKeepSel();
+  render();
+});
+$('#btnMonthsClear').addEventListener('click', () => {
+  state.months = new Set();
+  buildMonthChipsKeepSel();
+  render();
+});
+function buildMonthChipsKeepSel() {
+  document.querySelectorAll('#monthChips button.chip').forEach(b => {
+    if (!b.disabled) b.classList.toggle('on', state.months.has(b.dataset.m));
+  });
+}
+
+$('#btnSite').addEventListener('click', e => { e.stopPropagation(); $('#sitePanel').classList.toggle('hidden'); });
+document.addEventListener('click', e => {
+  if (!e.target.closest('#siteMS')) $('#sitePanel').classList.add('hidden');
+});
+$('#siteSearch').addEventListener('input', e => renderSites(e.target.value));
+$('#siteList').addEventListener('change', e => {
+  const cb = e.target.closest('input[type=checkbox]'); if (!cb) return;
+  const i = +cb.dataset.i;
+  if (cb.checked) state.sites.add(i); else state.sites.delete(i);
+  updateSiteBtn(); render();
+});
+$('#btnSitesAll').addEventListener('click', () => {
+  state.sites = new Set(DS.sites.map((_, i) => i));
+  renderSites($('#siteSearch').value); updateSiteBtn(); render();
+});
+$('#btnSitesClear').addEventListener('click', () => {
+  state.sites = new Set();
+  renderSites($('#siteSearch').value); updateSiteBtn(); render();
+});
+
+document.querySelector('.adv').addEventListener('click', e => {
+  const c = e.target.closest('button.chip[data-k]'); if (!c) return;
+  const k = c.dataset.k, v = c.dataset.v;
+  if (state[k].has(v)) state[k].delete(v); else state[k].add(v);
+  c.classList.toggle('on', state[k].has(v));
+  render();
+});
+$('#chkFocus').addEventListener('change', e => { state.focusOnly = e.target.checked; render(); });
+$('#chkTemplate').addEventListener('change', e => { state.templateOnly = e.target.checked; render(); });
+$('#chkHideEmpty').addEventListener('change', e => { state.hideEmpty = e.target.checked; render(); });
+
+$('#thead').addEventListener('click', e => {
+  const th = e.target.closest('th[data-sort]'); if (!th) return;
+  const k = th.dataset.sort;
+  if (state.sortKey === k) state.sortDir = state.sortDir === 'desc' ? 'asc' : 'desc';
+  else { state.sortKey = k; state.sortDir = k === 'label' ? 'asc' : 'desc'; }
+  render();
+});
+
+$('#btnExport').addEventListener('click', exportXlsx);
+</script>
+</body>
+</html>

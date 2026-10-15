@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.DS_Store
+# 不要提交任何銷售資料檔案（會經網頁上載）
+*.xlsx
+*.xlsm
