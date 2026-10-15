@@ -962,7 +962,7 @@ async function pollUploadProgress(taskID) {
     const res = await fetch('/api/progress/' + taskID);
     const j = await res.json().catch(() => ({}));
     if (!res.ok || !j.ok) throw new Error(j.error || ('HTTP ' + res.status));
-    if (j.status === 'done') { setProgress(100, '完成'); return j; }
+    if (j.status === 'done') { setProgress(100, '正在載入數據…'); return j; }
     if (j.status === 'error') throw new Error(j.error || '解析失敗');
     setProgress(j.pct || 0, j.msg || '正在解析檔案…');
     await new Promise(r => setTimeout(r, 400));

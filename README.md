@@ -102,7 +102,7 @@ git push -u origin main
 ## 效能
 
 - Excel 解析引擎：**python-calamine**（Rust 實作，比 openpyxl 快約 10 倍）
-- 實測速度：店鋪級檔（約 2 千行）< 0.1 秒；明細檔 39k 行約 **0.8 秒**；150k 行約 **2.6 秒**
+- 實測速度：店鋪級檔（約 2 千行）< 0.1 秒；明細檔 39k 行約 **0.5 秒**；155k 行（4 個月）約 **2 秒**
 - 如環境未安裝 python-calamine，會自動退回 openpyxl（功能相同、較慢）
 - 萬一 calamine 讀唔到某檔案，亦會自動嘗試 openpyxl，唔會失敗
 

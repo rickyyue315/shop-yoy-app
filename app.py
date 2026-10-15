@@ -16,7 +16,9 @@ Shop YoY 分析系統
 """
 
 import csv
+import gzip
 import io
+import json
 import os
 import re
 import threading
@@ -276,7 +278,11 @@ def _scan_sheets_calamine(wb):
                 break
             cm = _header_colmap(row)
             if cm:
-                return name, ri, cm, it, None
+                try:
+                    total = int(ws.height)  # calamine 直接提供總行數（即時）
+                except Exception:
+                    total = 0
+                return name, ri, cm, it, None, total
     return None
 
 
@@ -291,16 +297,16 @@ def _scan_sheets_openpyxl(wb):
                 break
             cm = _header_colmap(row)
             if cm:
-                return sh.title, ri, cm, it, wb.close
+                return sh.title, ri, cm, it, wb.close, 0
     return None
 
 
 def _find_header_reader(data):
     """開啟 Excel 並搵表頭（每張工作表頭 10 行內）。
 
-    回傳 (sheet_title, header_index, colmap, row_iter, close_fn)；
-    開得到但搵唔到表頭就回傳 None。優先用 python-calamine（快），
-    失敗或唔支援就退回 openpyxl。
+    回傳 (sheet_title, header_index, colmap, row_iter, close_fn, total_hint)；
+    開得到但搵唔到表頭就回傳 None（total_hint > 0 表示唔使再自行數行）。
+    優先用 python-calamine（快），失敗或唔支援就退回 openpyxl。
     """
     if CalamineWorkbook is not None:
         try:
@@ -340,16 +346,17 @@ def parse_excel(data, progress=None):
                 pass
 
     cb(1, '讀取檔案…')
-    cb(3, '尋找資料表…')
+    cb(3, '載入數據…')
     found = _find_header_reader(data)
     if found is None:
         raise ValueError(
             '找不到資料表：檔案需包含 Month、Shop、Net Sales 欄位（Hugo_by Shop_YoY 或 Hugo_all_YoY 匯出格式）。')
-    sheet_title, header_i, colmap, row_iter, close_fn = found
+    sheet_title, header_i, colmap, row_iter, close_fn, total_hint = found
 
     try:
-        total_rows = _count_rows_quick(data, sheet_title)
-        cb(6, '解析資料…')
+        # calamine 直接提供總行數；後備路徑先自行快速數行（用於進度顯示）
+        total_rows = total_hint if total_hint else _count_rows_quick(data, sheet_title)
+        cb(35, '解析資料…')
 
         i_month = colmap['month']
         i_shop = colmap['shop']
@@ -377,7 +384,7 @@ def parse_excel(data, progress=None):
         for row in row_iter:
             processed += 1
             if total_rows and processed % 2000 == 0:
-                cb(6 + 88 * min(1.0, processed / total_rows),
+                cb(35 + 58 * min(1.0, processed / total_rows),
                    '解析中… %s / %s 行' % (format(processed, ','), format(total_rows, ',')))
             if row is None or len(row) <= max(i_month, i_shop):
                 continue
@@ -463,21 +470,29 @@ def parse_excel(data, progress=None):
                 pos += 1
 
         cb(97, '整理數據…')
+        # 預先整理維度索引（避免逐行查 dict）
+        pickers = []
+        if rich:
+            for j, k in enumerate(ALL_DIMS):
+                d = dims.get(k)
+                if d is not None:
+                    pickers.append((d['idx'], j))
         rows = []
-        if not rich:
-            for (m, code), (qty, sales, gp) in agg.items():
-                rows.append([m_idx[m], s_idx[code], int(round(qty)), round(sales, 2), round(gp, 2)])
-        else:
-            for key, (qty, sales, gp) in agg.items():
-                m, code = key[0], key[1]
+        n_keys = len(agg)
+        step = max(1, n_keys // 50)
+        i = 0
+        for key, (qty, sales, gp) in agg.items():
+            i += 1
+            m, code = key[0], key[1]
+            r = [m_idx[m], s_idx[code], int(round(qty)), round(sales, 2), round(gp, 2)]
+            if rich:
                 dim_vals = key[2:]
-                r = [m_idx[m], s_idx[code], int(round(qty)), round(sales, 2), round(gp, 2)]
-                for j, k in enumerate(ALL_DIMS):
-                    d = dims.get(k)
-                    if d is None:
-                        continue
-                    r.append(d['idx'][dim_vals[j]])
-                rows.append(r)
+                for idx_map, j in pickers:
+                    r.append(idx_map[dim_vals[j]])
+            rows.append(r)
+            if n_keys > 100000 and i % step == 0:
+                cb(97 + 1.5 * i / n_keys,
+                   '整理數據… %s / %s' % (format(i, ','), format(n_keys, ',')))
         rows.sort(key=lambda r: (r[0], r[1]))
 
         years = {}
@@ -1345,7 +1360,7 @@ def api_upload():
 
 @app.get('/api/progress/<task_id>')
 def api_progress(task_id):
-    """查詢解析進度；status = parsing / done / error。完成時一併回傳數據。"""
+    """查詢解析進度；status = parsing / done / error。完成時一併回傳數據（大檔自動 gzip）。"""
     with _TASKS_LOCK:
         tk = _TASKS.get(task_id)
         if tk is None:
@@ -1357,7 +1372,14 @@ def api_progress(task_id):
             resp['ttlHours'] = DATA_TTL_HOURS
         elif tk['status'] == 'error':
             resp['error'] = tk.get('error') or '解析失敗'
-    return jsonify(resp)
+
+    payload = json.dumps(resp, ensure_ascii=False, separators=(',', ':')).encode('utf-8')
+    if len(payload) > 200 * 1024 and 'gzip' in (request.headers.get('Accept-Encoding') or ''):
+        gz = gzip.compress(payload, 6)
+        if len(gz) < len(payload):
+            return Response(gz, 200, {'Content-Type': 'application/json; charset=utf-8',
+                                      'Content-Encoding': 'gzip', 'Vary': 'Accept-Encoding'})
+    return Response(payload, 200, {'Content-Type': 'application/json; charset=utf-8'})
 
 
 @app.post('/api/clear-all')
