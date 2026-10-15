@@ -99,6 +99,10 @@ GROUP_LABELS = {
     'postal': '客源 Postal',
     'buyer': '買手 Buyer',
     'sst': 'SST',
+    'status': '貨品狀態 Status',
+    'customer': '客戶類型 Customer',
+    'promoid1': '推廣 PromoID1',
+    'promoid2': '推廣 PromoID2',
 }
 
 # 精簡 SKU 店鋪（進階篩選快速選用；如日後名單有變，改呢個清單即可）
@@ -205,7 +209,8 @@ def load_template():
 # Excel 解析
 # ---------------------------------------------------------------------------
 
-ALL_DIMS = ['brand', 'mch1', 'mch2', 'mc', 'nature', 'postal', 'buyer', 'sst']
+ALL_DIMS = ['brand', 'mch1', 'mch2', 'mc', 'nature', 'postal', 'buyer', 'sst',
+            'status', 'customer', 'promoid1', 'promoid2']
 
 
 def _count_rows_quick(data, sheet_name):
@@ -522,29 +527,36 @@ def parse_excel(data, progress=None):
 # YoY 計算（匯出用；與前端 index.html 的邏輯一致）
 # ---------------------------------------------------------------------------
 
-def _resolve_grouping(ds, opts):
-    """回傳 (mode, groupby)：mode = 'site'（店鋪／主檔屬性）或 'dim'（檔案分析維度）。"""
-    g = opts.get('groupBy') or 'shop'
-    if g in GROUP_FIELDS:
-        return 'site', g
-    if g in (ds.get('dims') or {}):
-        return 'dim', g
-    return 'site', 'shop'
+def _resolve_levels(ds, opts):
+    """回傳分組層級清單（最多 3 層）。支援 groupBys（多層）或 groupBy（單層，兼容舊版）。"""
+    raw = opts.get('groupBys')
+    if not raw:
+        raw = [opts.get('groupBy') or 'shop']
+    dims = ds.get('dims') or {}
+    levels = []
+    for g in raw:
+        g = str(g or '')
+        if (g in GROUP_FIELDS or g in dims) and g not in levels:
+            levels.append(g)
+        if len(levels) >= 3:
+            break
+    return levels or ['shop']
 
 
 def _prepare(ds, opts):
-    """建立店鋪篩選結果、分組容器及分組方式。
+    """建立店鋪篩選結果及分組容器。
 
     回傳 dict：
-      mode        'site' | 'dim'
-      groupby     實際分組鍵
-      groups      'site' 模式預先建立；'dim' 模式由 row 逐個建立
-      site_group  site index -> group key（只限 'site' 模式）
+      levels      分組層級清單（最多 3 層）
+      site_mode   True = 單層主檔屬性／店鋪（沿用預先建立組別的模式）
+      groups      組別容器（site_mode 預先建立；否則由 row 逐個建立）
+      site_group  site index -> group key（只限 site_mode）
       pass_set    通過篩選的 site index 集合
       pass_count  通過篩選的店鋪數
     """
     sites = ds['sites']
-    mode, groupby = _resolve_grouping(ds, opts)
+    levels = _resolve_levels(ds, opts)
+    site_mode = len(levels) == 1 and levels[0] in GROUP_FIELDS
 
     sel_codes = opts.get('siteCodes')
     sel_codes = {str(c) for c in sel_codes} if sel_codes else None
@@ -568,8 +580,8 @@ def _prepare(ds, opts):
     groups = {}
     site_group = {}
     pass_set = set()
-    if mode == 'site':
-        gfield = GROUP_FIELDS.get(groupby)
+    if site_mode:
+        gfield = GROUP_FIELDS.get(levels[0])
         for i, s in enumerate(sites):
             if not site_pass(s):
                 continue
@@ -578,6 +590,7 @@ def _prepare(ds, opts):
                 key = 'site:' + s['code']
                 groups[key] = {
                     'label': (s['code'] + (' ' + s['name'] if s['name'] else '')).strip(),
+                    'depth': 0, 'key': [key],
                     'code': s['code'], 'name': s['name'],
                     'regional': s['regional'], 'om': s['om'],
                     'class1': s['class1'], 'class2': s['class2'],
@@ -589,7 +602,8 @@ def _prepare(ds, opts):
                 key = gfield + ':' + val
                 g = groups.get(key)
                 if g is None:
-                    g = {'label': val, 'n': 0, 'cur': [0.0, 0.0, 0.0], 'ly': [0.0, 0.0, 0.0]}
+                    g = {'label': val, 'depth': 0, 'key': [key], 'n': 0,
+                         'cur': [0.0, 0.0, 0.0], 'ly': [0.0, 0.0, 0.0]}
                     groups[key] = g
                 g['n'] += 1
             site_group[i] = key
@@ -599,30 +613,84 @@ def _prepare(ds, opts):
                 pass_set.add(i)
 
     return {
-        'mode': mode, 'groupby': groupby,
+        'levels': levels, 'site_mode': site_mode,
         'groups': groups, 'site_group': site_group, 'pass_set': pass_set,
         'pass_count': len(pass_set),
     }
 
 
-def _dim_group(ds, prep, groups, row, si):
-    """dim 模式：取得／建立該 row 所屬的維度組別。"""
-    d = ds['dims'][prep['groupby']]
-    val = d['values'][row[d['pos']]] or '（未分類）'
-    key = 'd:' + val
-    g = groups.get(key)
-    if g is None:
-        g = {'label': val, 'n': 0,
-             'cur': [0.0, 0.0, 0.0], 'ly': [0.0, 0.0, 0.0], '_shops': set()}
-        groups[key] = g
-    if si not in g['_shops']:
-        g['_shops'].add(si)
-        g['n'] += 1
+def _make_group(ds, levels, key, si):
+    """建立一個層級組別（key = 由頂層到本層嘅值 tuple）。"""
+    depth = len(key) - 1
+    lv = levels[depth]
+    val = key[-1]
+    g = {'depth': depth, 'key': list(key), 'n': 0,
+         'cur': [0.0, 0.0, 0.0], 'ly': [0.0, 0.0, 0.0], '_shops': set()}
+    if lv == 'shop':
+        s = ds['sites'][val]
+        g['label'] = (s['code'] + (' ' + s['name'] if s['name'] else '')).strip()
+        g['site'] = s
+    elif lv in GROUP_FIELDS:
+        g['label'] = val or '（未分類）'
+    else:
+        g['label'] = ds['dims'][lv]['values'][val] or '（未分類）'
     return g
 
 
+def _row_groups(ds, prep, groups, row, si):
+    """取得／建立該 row 所屬嘅所有層級組別（由頂層至最底層，每層都要累加）。"""
+    levels = prep['levels']
+    sites = ds['sites']
+    vals = []
+    for lv in levels:
+        if lv == 'shop':
+            vals.append(si)
+        elif lv in GROUP_FIELDS:
+            vals.append((sites[si].get(lv) or '').strip() or '（未分類）')
+        else:
+            d = ds['dims'][lv]
+            vals.append(row[d['pos']])
+    out = []
+    for d in range(len(vals)):
+        key = tuple(vals[:d + 1])
+        g = groups.get(key)
+        if g is None:
+            g = _make_group(ds, levels, key, si)
+            groups[key] = g
+        if si not in g['_shops']:
+            g['_shops'].add(si)
+            g['n'] += 1
+        out.append(g)
+    return out
+
+
+def _sort_hierarchy(out):
+    """把組別排成階層次序（每層按本期淨銷售 desc；用 g['cur']）。"""
+    children = {}
+    roots = []
+    for g in out:
+        if len(g['key']) == 1:
+            roots.append(g)
+        else:
+            children.setdefault(tuple(g['key'][:-1]), []).append(g)
+    roots.sort(key=lambda g: (-g['cur'][1], g['label']))
+    result = []
+
+    def emit(g):
+        result.append(g)
+        kids = children.get(tuple(g['key']))
+        if kids:
+            kids.sort(key=lambda x: (-x['cur'][1], x['label']))
+            for k in kids:
+                emit(k)
+
+    for r in roots:
+        emit(r)
+    return result
+
+
 def compute_report(ds, opts):
-    """累計模式：所選月份合併，與去年同期比較。"""
+    """累計模式：所選月份合併，與去年同期比較（支援多層分組）。"""
     year = int(opts.get('year'))
     lyear = year - 1
     months = {str(m) for m in (opts.get('months') or [])}
@@ -631,9 +699,9 @@ def compute_report(ds, opts):
 
     prep = _prepare(ds, opts)
     groups = prep['groups']
-    mode = prep['mode']
     site_group = prep['site_group']
     pass_set = prep['pass_set']
+    site_mode = prep['site_mode']
 
     ystr, lystr = str(year), str(lyear)
     for row in ds['rows']:
@@ -647,14 +715,15 @@ def compute_report(ds, opts):
             target = 'ly'
         else:
             continue
-        if mode == 'site':
-            g = groups[site_group[si]]
+        if site_mode:
+            gs = (groups[site_group[si]],)
         else:
-            g = _dim_group(ds, prep, groups, row, si)
-        t = g[target]
-        t[0] += row[2]
-        t[1] += row[3]
-        t[2] += row[4]
+            gs = _row_groups(ds, prep, groups, row, si)
+        for g in gs:
+            t = g[target]
+            t[0] += row[2]
+            t[1] += row[3]
+            t[2] += row[4]
 
     hide_empty = opts.get('hideEmpty', True)
     out = []
@@ -662,10 +731,15 @@ def compute_report(ds, opts):
         if hide_empty and not any(g['cur']) and not any(g['ly']):
             continue
         out.append(g)
-    out.sort(key=lambda g: (-g['cur'][1], g['label']))
+    if site_mode:
+        out.sort(key=lambda g: (-g['cur'][1], g['label']))
+    else:
+        out = _sort_hierarchy(out)
 
     totals = {'cur': [0.0, 0.0, 0.0], 'ly': [0.0, 0.0, 0.0]}
     for g in out:
+        if g['depth'] != 0:  # 只加總頂層，避免重複計算
+            continue
         for j in range(3):
             totals['cur'][j] += g['cur'][j]
             totals['ly'][j] += g['ly'][j]
@@ -674,7 +748,7 @@ def compute_report(ds, opts):
 
 
 def compute_matrix(ds, opts):
-    """按月矩陣：每個組別 × 每個所選月份（本期與去年同期分開存放）。"""
+    """按月矩陣：每個組別 × 每個所選月份（支援多層分組）。"""
     year = int(opts.get('year'))
     lyear = year - 1
     months = sorted({str(m) for m in (opts.get('months') or [])})
@@ -683,9 +757,9 @@ def compute_matrix(ds, opts):
 
     prep = _prepare(ds, opts)
     groups = prep['groups']
-    mode = prep['mode']
     site_group = prep['site_group']
     pass_set = prep['pass_set']
+    site_mode = prep['site_mode']
 
     def ensure_cells(g):
         if 'cells' not in g:
@@ -705,15 +779,16 @@ def compute_matrix(ds, opts):
             tname, cm = 'cellsLy', ly_of[m]
         else:
             continue
-        if mode == 'site':
-            g = groups[site_group[si]]
+        if site_mode:
+            gs = (groups[site_group[si]],)
         else:
-            g = _dim_group(ds, prep, groups, row, si)
-        ensure_cells(g)
-        cell = g[tname][cm]
-        cell[0] += row[2]
-        cell[1] += row[3]
-        cell[2] += row[4]
+            gs = _row_groups(ds, prep, groups, row, si)
+        for g in gs:
+            ensure_cells(g)
+            cell = g[tname][cm]
+            cell[0] += row[2]
+            cell[1] += row[3]
+            cell[2] += row[4]
 
     for g in groups.values():
         ensure_cells(g)
@@ -729,7 +804,12 @@ def compute_matrix(ds, opts):
         if hide_empty and not any(g['aggCur']) and not any(g['aggLy']):
             continue
         out.append(g)
-    out.sort(key=lambda g: (-g['aggCur'][1], g['label']))
+    if site_mode:
+        out.sort(key=lambda g: (-g['aggCur'][1], g['label']))
+    else:
+        for g in out:  # _sort_hierarchy 用 cur 排序
+            g['cur'] = g['aggCur']
+        out = _sort_hierarchy(out)
 
     totals = {
         'cells': {m: [0.0, 0.0, 0.0] for m in months},
@@ -738,6 +818,8 @@ def compute_matrix(ds, opts):
         'aggLy': [0.0, 0.0, 0.0],
     }
     for g in out:
+        if g['depth'] != 0:  # 只加總頂層，避免重複計算
+            continue
         for m in months:
             for j in range(3):
                 totals['cells'][m][j] += g['cells'][m][j]
@@ -797,8 +879,8 @@ def _write_title_block(ws, ds, opts, months, ly_months, extra_line=''):
     ws['A3'] = '比較期間：%s  vs  %s' % (_period_label(months), _period_label(ly_months))
     ws['A3'].font = Font(size=11, bold=True, color='0F172A')
 
-    groupby = opts.get('groupBy') or 'shop'
-    line = '分組：%s' % GROUP_LABELS.get(groupby, groupby)
+    levels = _resolve_levels(ds, opts)
+    line = '分組：%s' % ' ＞ '.join(GROUP_LABELS.get(l, l) for l in levels)
     if extra_line:
         line += '　|　' + extra_line
     line += '　|　' + _filter_summary(opts)
@@ -835,7 +917,7 @@ def _row_metrics(g):
 def build_workbook(ds, opts, report):
     year = int(opts['year'])
     lyear = year - 1
-    groupby = opts.get('groupBy') or 'shop'
+    levels = _resolve_levels(ds, opts)
     months = sorted(str(m) for m in (opts.get('months') or []))
     ly_months = ['%d-%s' % (lyear, m[5:7]) for m in months]
 
@@ -872,14 +954,15 @@ def build_workbook(ds, opts, report):
         ('毛利 GP$', ['本期', '去年同期', 'YoY%']),
         ('毛利率', ['本期', '去年', '± pp']),
     ]
-    if groupby == 'shop':
+    if levels == ['shop']:
         lead = [
             ('店鋪', 'label', 26), ('Site', 'text', 9), ('店名', 'text', 18),
             ('Regional', 'text', 9), ('OM', 'text', 9), ('Class 1', 'text', 8),
             ('Class 2', 'text', 8), ('Size', 'text', 7), ('Type', 'text', 6), ('需關注', 'text', 7),
         ]
     else:
-        lead = [(GROUP_LABELS.get(groupby, '分組'), 'label', 26), ('店鋪數', 'qty', 9)]
+        lead_name = ' ＞ '.join(GROUP_LABELS.get(l, l) for l in levels) if len(levels) > 1 else GROUP_LABELS.get(levels[0], '分組')
+        lead = [(lead_name, 'label', 30), ('店鋪數', 'qty', 9)]
     kinds = ['money', 'money', 'yoy', 'qty', 'qty', 'yoy', 'money', 'money', 'yoy', 'pct', 'pct', 'pp']
     kind_width = {'money': 15, 'qty': 11, 'yoy': 10, 'pct': 11, 'pp': 10, 'text': 9, 'label': 26}
 
@@ -896,7 +979,7 @@ def build_workbook(ds, opts, report):
             c.font = head_font if rr == h1 else Font(bold=True, color='334155')
 
     # 第一欄（及分組模式的店鋪數欄）合併兩行
-    vmerged = [1] + ([2] if groupby != 'shop' else [])
+    vmerged = [1] + ([2] if levels != ['shop'] else [])
     for ci in vmerged:
         ws.merge_cells(start_row=h1, start_column=ci, end_row=h2, end_column=ci)
         c = ws.cell(row=h1, column=ci)
@@ -906,7 +989,7 @@ def build_workbook(ds, opts, report):
 
     ws.cell(row=h1, column=1, value=lead[0][0])
     col = 2
-    if groupby == 'shop':
+    if levels == ['shop']:
         ws.cell(row=h1, column=2, value='店鋪資料')
         ws.merge_cells(start_row=h1, start_column=2, end_row=h1, end_column=len(lead))
     else:
@@ -979,14 +1062,14 @@ def build_workbook(ds, opts, report):
     def emit(g, bold=False, fill=None):
         nonlocal r
         mvals = _row_metrics(g)
-        if groupby == 'shop':
+        if levels == ['shop']:
             lead_vals = [
                 g['label'], g['code'], g['name'], g['regional'], g['om'],
                 g['class1'], g['class2'], g['size'], g['type'],
                 ('Y' if g.get('focus') else ''),
             ]
         else:
-            lead_vals = [g['label'], g['n']]
+            lead_vals = [('　' * g.get('depth', 0)) + g['label'], g['n']]
         for ci, ((name, kind, _w), val) in enumerate(zip(lead, lead_vals), start=1):
             write_cell(r, ci, kind, val, bold=bold, fill=fill)
         for j, (kind, v) in enumerate(zip(kinds, mvals)):
@@ -1018,7 +1101,7 @@ def build_matrix_workbook(ds, opts, matrix):
     """按月矩陣匯出：每組別一行、每個月一欄（顯示所選指標），尾加合計欄。"""
     year = int(opts['year'])
     lyear = year - 1
-    groupby = opts.get('groupBy') or 'shop'
+    levels = _resolve_levels(ds, opts)
     metric = opts.get('matrixMetric') or 'salesYoy'
     if metric == 'all':
         sections = [('salesYoy', '淨銷售 YoY%'), ('qtyYoy', '銷量 YoY%'),
@@ -1065,14 +1148,16 @@ def build_matrix_workbook(ds, opts, matrix):
     h2 = h1 + 1 if multi else h1
     first_data = h2 + 1
 
-    if groupby == 'shop':
+    if levels == ['shop']:
         lead = [
             ('店鋪', 'label', 26), ('Site', 'text', 9), ('店名', 'text', 18),
             ('Regional', 'text', 9), ('OM', 'text', 9), ('Class 1', 'text', 8),
             ('Class 2', 'text', 8), ('Size', 'text', 7), ('Type', 'text', 6), ('需關注', 'text', 7),
         ]
+        lead_group_name = '店鋪資料'
     else:
-        lead = [(GROUP_LABELS.get(groupby, '分組'), 'label', 26), ('店鋪數', 'qty', 9)]
+        lead_group_name = ' ＞ '.join(GROUP_LABELS.get(l, l) for l in levels) if len(levels) > 1 else GROUP_LABELS.get(levels[0], '分組')
+        lead = [(lead_group_name, 'label', 30), ('店鋪數', 'qty', 9)]
 
     ncols = len(lead) + len(sections) * (len(months) + 1)
 
@@ -1083,7 +1168,7 @@ def build_matrix_workbook(ds, opts, matrix):
             c = ws.cell(row=h1, column=cc)
             c.fill = head_fill
             c.border = border
-        c = ws.cell(row=h1, column=1, value='店鋪資料' if groupby == 'shop' else '分組資料')
+        c = ws.cell(row=h1, column=1, value=lead_group_name)
         c.font = head_font
         c.alignment = center
         ws.merge_cells(start_row=h1, start_column=1, end_row=h1, end_column=len(lead))
@@ -1154,7 +1239,7 @@ def build_matrix_workbook(ds, opts, matrix):
 
     # ---- 儲存格寫入 ----
     def write_lead(rr, g, bold=False, fill=None):
-        if groupby == 'shop':
+        if levels == ['shop']:
             vals = [
                 (g['label'], 'label'), (g['code'], 'text'), (g['name'], 'text'),
                 (g['regional'], 'text'), (g['om'], 'text'), (g['class1'], 'text'),
@@ -1162,7 +1247,7 @@ def build_matrix_workbook(ds, opts, matrix):
                 ('Y' if g.get('focus') else '', 'text'),
             ]
         else:
-            vals = [(g['label'], 'label'), (g['n'], 'qty')]
+            vals = [(('　' * g.get('depth', 0)) + g['label'], 'label'), (g['n'], 'qty')]
         for ci, (v, k) in enumerate(vals, start=1):
             c = ws.cell(row=rr, column=ci)
             c.border = border
@@ -1414,7 +1499,7 @@ def api_report(token):
             mx = compute_matrix(ds, opts)
             r2 = lambda arr: [round(x, 2) for x in arr]
             groups = [{
-                'label': g['label'], 'n': g['n'],
+                'label': g['label'], 'n': g['n'], 'depth': g.get('depth', 0),
                 'cells': {m: r2(g['cells'][m]) for m in mx['months']},
                 'ly': {m: r2(g['cellsLy'][m]) for m in mx['months']},
                 'agg': {'cur': r2(g['aggCur']), 'ly': r2(g['aggLy'])},
@@ -1436,7 +1521,7 @@ def api_report(token):
     groups = []
     for g in rep['groups']:
         groups.append({
-            'label': g['label'], 'n': g['n'],
+            'label': g['label'], 'n': g['n'], 'depth': g.get('depth', 0),
             'cur': {'qty': g['cur'][0], 'sales': g['cur'][1], 'gp': g['cur'][2]},
             'ly': {'qty': g['ly'][0], 'sales': g['ly'][1], 'gp': g['ly'][2]},
         })

@@ -174,6 +174,7 @@
   tr.total .sticky-col { background: #eef2ff; }
   tr:hover .sticky-col { background: #f8fafc; }
   tr.total:hover .sticky-col { background: #eef2ff; }
+  .lead.sub { font-weight: 500; color: #475569; }
   .scode { color: #334155; font-weight: 700; margin-right: 2px; }
   .tag { background: #f1f5f9; color: var(--muted); font-size: 10px; border-radius: 4px; padding: 1px 5px; font-weight: 400; margin-left: 4px; }
   .warnq { color: #b45309; margin-left: 4px; }
@@ -228,15 +229,16 @@
         <span class="mini"><a id="btnMonthsAll">全選</a> · <a id="btnMonthsClear">清除</a></span>
         <span class="sep"></span>
         <label>分組</label>
-        <select id="groupSel">
-          <option value="shop">店鋪</option>
-          <option value="regional">Regional</option>
-          <option value="om">OM</option>
-          <option value="class1">Class 1</option>
-          <option value="class2">Class 2</option>
-          <option value="size">Size</option>
-          <option value="type">Type</option>
-        </select>
+        <div class="ms" id="groupMS">
+          <button id="btnGroup" class="ms-btn">分組：店鋪 ▾</button>
+          <div id="groupPanel" class="ms-panel hidden">
+            <div class="ms-actions">
+              <span class="muted">可揀多層（最多 3 層；選擇次序 = 嵌套層級）</span>
+              <a id="btnGroupReset">重設</a>
+            </div>
+            <div id="groupList" class="ms-list"></div>
+          </div>
+        </div>
         <span class="sep"></span>
         <label>檢視</label>
         <select id="viewSel">
@@ -345,11 +347,13 @@ const $ = s => document.querySelector(s);
 const ATTRS = ['regional', 'om', 'class1', 'class2', 'size', 'type'];
 const ATTR_CHIP_ID = { regional: 'chipsRegional', om: 'chipsOM', class1: 'chipsClass1', class2: 'chipsClass2', size: 'chipsSize', type: 'chipsType' };
 const TEMPLATE_GROUPINGS = ['shop', 'regional', 'om', 'class1', 'class2', 'size', 'type'];
-const DIM_ORDER = ['brand', 'mch1', 'mch2', 'mc', 'nature', 'postal', 'buyer', 'sst'];
+const DIM_ORDER = ['brand', 'mch1', 'mch2', 'mc', 'nature', 'postal', 'buyer', 'sst', 'status', 'customer', 'promoid1', 'promoid2'];
 const GROUP_LABEL_JS = {
   shop: '店鋪', regional: 'Regional', om: 'OM', class1: 'Class 1', class2: 'Class 2', size: 'Size', type: 'Type',
   brand: '品牌 Brand', mch1: '大分類 MCH1', mch2: '中分類 MCH2', mc: '品類 MC',
-  nature: '客群 Nature', postal: '客源 Postal', buyer: '買手 Buyer', sst: 'SST'
+  nature: '客群 Nature', postal: '客源 Postal', buyer: '買手 Buyer', sst: 'SST',
+  status: '貨品狀態 Status', customer: '客戶類型 Customer',
+  promoid1: '推廣 PromoID1', promoid2: '推廣 PromoID2'
 };
 
 let DS = null, TOKEN = null, TTL = 0;
@@ -358,7 +362,7 @@ const state = {
   year: null, months: new Set(), sites: new Set(),
   regional: new Set(), om: new Set(), class1: new Set(), class2: new Set(), size: new Set(), type: new Set(),
   focusOnly: false, templateOnly: false, leanSkuOnly: false, hideEmpty: true,
-  groupBy: 'shop', view: 'agg', matrixMetric: 'salesYoy',
+  groupBys: ['shop'], view: 'agg', matrixMetric: 'salesYoy',
   sortKey: 'curSales', sortDir: 'desc'
 };
 
@@ -402,8 +406,49 @@ function monthsLabel(ms, year) {
 }
 
 /* ---------------- 計算 ---------------- */
+function levelsLabel() {
+  return state.groupBys.map(v => GROUP_LABEL_JS[v] || v).join(' › ');
+}
+
+function makeComparator(metricsFn) {
+  const sk = state.sortKey, dir = state.sortDir === 'asc' ? 1 : -1;
+  return (a, b) => {
+    if (sk === 'label') return dir * a.label.localeCompare(b.label, 'zh-Hant');
+    const av = metricsFn(a)[sk], bv = metricsFn(b)[sk];
+    const an = !isNum(av), bn = !isNum(bv);
+    if (an && bn) return a.label.localeCompare(b.label, 'zh-Hant');
+    if (an) return 1;
+    if (bn) return -1;
+    return dir * (av - bv);
+  };
+}
+
+function sortHierarchy(list, cmp) {
+  if (!list.some(g => g.depth > 0)) { list.sort(cmp); return list; }
+  const children = new Map();
+  const roots = [];
+  for (const g of list) {
+    const parts = g.key.split('¦');
+    if (parts.length <= 1) roots.push(g);
+    else {
+      const pk = parts.slice(0, -1).join('¦');
+      if (!children.has(pk)) children.set(pk, []);
+      children.get(pk).push(g);
+    }
+  }
+  roots.sort(cmp);
+  const out = [];
+  const emit = g => {
+    out.push(g);
+    const kids = children.get(g.key);
+    if (kids) { kids.sort(cmp); kids.forEach(emit); }
+  };
+  roots.forEach(emit);
+  return out;
+}
+
 function prepareRows() {
-  const G = state.groupBy;
+  const L = state.groupBys;
   const sites = DS.sites;
   const attrPass = s => {
     for (const k of ATTRS) {
@@ -417,41 +462,64 @@ function prepareRows() {
   };
   const pass = sites.map(() => false);
   const groups = new Map();
-  const isDim = !TEMPLATE_GROUPINGS.includes(G);
-  const gkeySite = (s, i) => G === 'shop' ? 'i' + i : ((s[G] && String(s[G]).trim()) || '（未分類）');
+  const siteMode = L.length === 1 && TEMPLATE_GROUPINGS.includes(L[0]);
+  const L0 = L[0];
+  const gkeySite = (s, i) => L0 === 'shop' ? 'i' + i : ((s[L0] && String(s[L0]).trim()) || '（未分類）');
 
   sites.forEach((s, i) => {
     pass[i] = state.sites.has(i) && attrPass(s);
-    if (!pass[i] || isDim) return;
+    if (!pass[i] || !siteMode) return;
     const k = gkeySite(s, i);
     let g = groups.get(k);
     if (!g) {
       g = {
-        label: G === 'shop' ? (s.code + (s.name ? ' ' + s.name : '')) : k,
-        n: 0, cur: [0, 0, 0], ly: [0, 0, 0],
-        site: G === 'shop' ? s : null
+        label: L0 === 'shop' ? (s.code + (s.name ? ' ' + s.name : '')) : k,
+        depth: 0, key: k, site: L0 === 'shop' ? s : null,
+        n: 0, cur: [0, 0, 0], ly: [0, 0, 0]
       };
       groups.set(k, g);
     }
     g.n++;
   });
 
-  const groupForRow = (r, si) => {
-    if (!isDim) return groups.get(gkeySite(sites[si], si));
-    const d = DS.dims[G];
-    const val = d.values[r[d.pos]] || '（未分類）';
-    const key = 'd:' + val;
-    let g = groups.get(key);
-    if (!g) {
-      g = { label: val, n: 0, cur: [0, 0, 0], ly: [0, 0, 0], site: null, _shops: new Set() };
-      groups.set(key, g);
+  const levelVals = (r, si) => {
+    const vals = [];
+    for (const lv of L) {
+      if (lv === 'shop') vals.push(si);
+      else if (TEMPLATE_GROUPINGS.includes(lv)) vals.push((sites[si][lv] || '').trim() || '（未分類）');
+      else vals.push(r[DS.dims[lv].pos]);
     }
-    if (!g._shops.has(si)) { g._shops.add(si); g.n++; }
-    return g;
+    return vals;
+  };
+  const labelFor = (lv, val) => {
+    if (lv === 'shop') {
+      const s = sites[val];
+      return { label: (s.code + (s.name ? ' ' + s.name : '')).trim(), site: s };
+    }
+    if (TEMPLATE_GROUPINGS.includes(lv)) return { label: String(val || '（未分類）'), site: null };
+    return { label: (DS.dims[lv].values[val] || '（未分類）'), site: null };
+  };
+
+  const groupsForRow = (r, si) => {
+    if (siteMode) return [groups.get(gkeySite(sites[si], si))];
+    const vals = levelVals(r, si);
+    const out = [];
+    for (let d = 0; d < vals.length; d++) {
+      const key = vals.slice(0, d + 1).join('¦');
+      let g = groups.get(key);
+      if (!g) {
+        const info = labelFor(L[d], vals[d]);
+        g = { label: info.label, site: info.site, depth: d, key, n: 0, cur: [0, 0, 0], ly: [0, 0, 0], _shops: new Set() };
+        groups.set(key, g);
+      }
+      if (!g._shops.has(si)) { g._shops.add(si); g.n++; }
+      out.push(g);
+    }
+    return out;
   };
 
   const siteCount = pass.filter(Boolean).length;
-  return { pass, groups, groupForRow, siteCount, isDim };
+  return { pass, groups, groupsForRow, siteCount, siteMode };
 }
 
 function compute() {
@@ -460,7 +528,7 @@ function compute() {
   const sel = state.months;
   const lysel = new Set([...sel].map(m => `${ly}-${m.slice(5)}`));
 
-  const { pass, groups, groupForRow, siteCount } = prepareRows();
+  const { pass, groups, groupsForRow, siteCount } = prepareRows();
 
   for (const r of rows) {
     const si = r[1];
@@ -469,10 +537,12 @@ function compute() {
     let t = null;
     if (sel.has(m)) t = 'cur'; else if (lysel.has(m)) t = 'ly';
     if (!t) continue;
-    const g = groupForRow(r, si);
-    if (!g) continue;
-    const a = g[t];
-    a[0] += r[2]; a[1] += r[3]; a[2] += r[4];
+    const gs = groupsForRow(r, si);
+    for (const g of gs) {
+      if (!g) continue;
+      const a = g[t];
+      a[0] += r[2]; a[1] += r[3]; a[2] += r[4];
+    }
   }
 
   let list = [...groups.values()];
@@ -480,8 +550,7 @@ function compute() {
     list = list.filter(g => g.cur[0] || g.cur[1] || g.cur[2] || g.ly[0] || g.ly[1] || g.ly[2]);
   }
 
-  const sk = state.sortKey, dir = state.sortDir === 'asc' ? 1 : -1;
-  const metrics = g => {
+  const metricsOf = g => {
     const s = g.cur[1], q = g.cur[0], p = g.cur[2];
     const pc = s ? p / s : null, pl = g.ly[1] ? g.ly[2] / g.ly[1] : null;
     return {
@@ -491,18 +560,11 @@ function compute() {
       curGpPct: pc, dGpPct: (pc !== null && pl !== null) ? pc - pl : null
     };
   };
-  list.sort((a, b) => {
-    if (sk === 'label') return dir * a.label.localeCompare(b.label, 'zh-Hant');
-    const av = metrics(a)[sk], bv = metrics(b)[sk];
-    const an = !isNum(av), bn = !isNum(bv);
-    if (an && bn) return a.label.localeCompare(b.label, 'zh-Hant');
-    if (an) return 1;
-    if (bn) return -1;
-    return dir * (av - bv);
-  });
+  list = sortHierarchy(list, makeComparator(metricsOf));
 
   const totals = { cur: [0, 0, 0], ly: [0, 0, 0] };
   for (const g of list) {
+    if (g.depth) continue;  // 只加總頂層，避免重複計算
     for (let j = 0; j < 3; j++) { totals.cur[j] += g.cur[j]; totals.ly[j] += g.ly[j]; }
   }
   return { list, totals, siteCount };
@@ -565,7 +627,7 @@ function computeMatrix() {
   const lyOf = {};
   for (const m of selMs) lyOf[`${ly}-${m.slice(5)}`] = m;
 
-  const { pass, groups, groupForRow, siteCount } = prepareRows();
+  const { pass, groups, groupsForRow, siteCount } = prepareRows();
   const months = DS.months, rows = DS.rows;
 
   const ensureCells = g => {
@@ -584,11 +646,13 @@ function computeMatrix() {
     if (selSet.has(m)) { tname = 'cells'; cm = m; }
     else if (lyOf[m]) { tname = 'cellsLy'; cm = lyOf[m]; }
     if (!tname) continue;
-    const g = groupForRow(r, si);
-    if (!g) continue;
-    ensureCells(g);
-    const cell = g[tname][cm];
-    cell[0] += r[2]; cell[1] += r[3]; cell[2] += r[4];
+    const gs = groupsForRow(r, si);
+    for (const g of gs) {
+      if (!g) continue;
+      ensureCells(g);
+      const cell = g[tname][cm];
+      cell[0] += r[2]; cell[1] += r[3]; cell[2] += r[4];
+    }
   }
 
   for (const g of groups.values()) ensureCells(g);
@@ -616,7 +680,7 @@ function computeMatrix() {
     }
     return null;
   };
-  list.sort((a, b) => {
+  const cmp = (a, b) => {
     if (sk === 'label') return dir * a.label.localeCompare(b.label, 'zh-Hant');
     const av = valOf(a), bv = valOf(b);
     const an = !isNum(av), bn = !isNum(bv);
@@ -624,11 +688,13 @@ function computeMatrix() {
     if (an) return 1;
     if (bn) return -1;
     return dir * (av - bv);
-  });
+  };
+  list = sortHierarchy(list, cmp);
 
   const tm = {}; for (const m of selMs) tm[m] = { cur: [0, 0, 0], ly: [0, 0, 0] };
   const ta = { cur: [0, 0, 0], ly: [0, 0, 0] };
   for (const g of list) {
+    if (g.depth) continue;  // 只加總頂層，避免重複計算
     for (const m of selMs) {
       for (let j = 0; j < 3; j++) { tm[m].cur[j] += g.cells[m][j]; tm[m].ly[j] += g.cellsLy[m][j]; }
     }
@@ -651,7 +717,7 @@ function ind(key) {
 }
 
 function renderHead() {
-  const lead = `<th class="sticky-col sortable" rowspan="2" data-sort="label">${GROUP_LABEL_JS[state.groupBy] || '分組'}${ind('label')}</th>`;
+  const lead = `<th class="sticky-col sortable" rowspan="2" data-sort="label">${levelsLabel()}${ind('label')}</th>`;
   let r1 = '';
   for (const md of METRIC_DEFS) r1 += `<th colspan="3" class="mgroup">${md.title}</th>`;
   let r2 = '';
@@ -666,17 +732,20 @@ function renderHead() {
 }
 
 function leadCellHTML(g) {
-  if (state.groupBy === 'shop') {
+  const depth = g.depth || 0;
+  const indent = depth ? `<span style="display:inline-block;width:${depth * 18}px"></span>` : '';
+  const sub = depth ? ' sub' : '';
+  if (g.site) {
     const site = g.site;
-    const title = site ? [site.code, site.name, site.regional,
+    const title = [site.code, site.name, site.regional,
       [site.class1, site.class2].filter(Boolean).join('/'), site.size, site.om, site.type]
-      .filter(Boolean).join(' · ') : '';
-    const warn = site && site.focus ? ' <span class="warnq" title="需特別關注">⚠</span>' : '';
-    const lean = site && site.leanSku ? ' <span class="tag">精簡SKU</span>' : '';
-    const tag = site && !site.inTemplate ? ' <span class="tag">模板外</span>' : '';
-    return `<td class="lead sticky-col" title="${esc(title)}"><span class="scode">${esc(site ? site.code : '')}</span>${esc(site ? site.name : '')}${warn}${lean}${tag}</td>`;
+      .filter(Boolean).join(' · ');
+    const warn = site.focus ? ' <span class="warnq" title="需特別關注">⚠</span>' : '';
+    const lean = site.leanSku ? ' <span class="tag">精簡SKU</span>' : '';
+    const tag = !site.inTemplate ? ' <span class="tag">模板外</span>' : '';
+    return `<td class="lead sticky-col${sub}" title="${esc(title)}">${indent}<span class="scode">${esc(site.code)}</span>${esc(site.name)}${warn}${lean}${tag}</td>`;
   }
-  return `<td class="lead sticky-col">${esc(g.label)} <span class="muted">(${g.n} 間)</span></td>`;
+  return `<td class="lead sticky-col${sub}">${indent}${esc(g.label)} <span class="muted">(${g.n} 間)</span></td>`;
 }
 
 function rowHTML(g, isTotal) {
@@ -697,9 +766,7 @@ function renderTable(rep) {
   if (!list.length) {
     html = '<tr><td class="empty" colspan="13">沒有符合條件的資料</td></tr>';
   } else {
-    const totG = state.groupBy === 'shop'
-      ? { label: '總計', n: siteCount, cur: totals.cur, ly: totals.ly, site: null }
-      : { label: '總計', n: siteCount, cur: totals.cur, ly: totals.ly, site: null };
+    const totG = { label: '總計', n: siteCount, cur: totals.cur, ly: totals.ly, site: null, depth: 0 };
     html += rowHTML(totG, true);
     for (const g of list) html += rowHTML(g, false);
   }
@@ -730,8 +797,8 @@ function matrixCellHTML(cur, lyv, metric, extra) {
 function renderMatrix(mx) {
   const sections = matrixSections();
   const multi = sections.length > 1;
-  const isShop = state.groupBy === 'shop';
-  const labelName = GROUP_LABEL_JS[state.groupBy] || '分組';
+  const isShop = state.groupBys.length === 1 && state.groupBys[0] === 'shop';
+  const labelName = levelsLabel();
 
   if (!multi) {
     let head = `<tr><th class="sticky-col sortable" data-sort="label">${labelName}${ind('label')}</th>`;
@@ -828,14 +895,10 @@ function render() {
 
   if (state.view === 'matrix') {
     const mx = computeMatrix();
-    $('#tableMeta').textContent = state.groupBy === 'shop'
-      ? `· 按月矩陣 · ${mx.list.length} 間店鋪`
-      : `· 按月矩陣 · ${mx.list.length} 個分組（共 ${mx.siteCount} 間店鋪）`;
+    $('#tableMeta').textContent = `· 按月矩陣 · 分組：${levelsLabel()} · ${mx.list.length} 行 · 共 ${mx.siteCount} 間店鋪`;
     renderMatrix(mx);
   } else {
-    $('#tableMeta').textContent = state.groupBy === 'shop'
-      ? `· ${rep.list.length} 間店鋪`
-      : `· ${rep.list.length} 個分組（共 ${rep.siteCount} 間店鋪）`;
+    $('#tableMeta').textContent = `· 分組：${levelsLabel()} · ${rep.list.length} 行 · 共 ${rep.siteCount} 間店鋪`;
     renderTable(rep);
   }
 }
@@ -847,6 +910,20 @@ function updateSiteBtn() {
   btn.textContent = (sel === total ? `全部店鋪（${total}） ` : (sel === 0 ? '未選擇店鋪 ' : `已選 ${sel}／${total} 店鋪 `)) + '▾';
   $('#siteSummary').textContent = sel === total ? `全部（${total}）` : `已選 ${sel}／${total}`;
   $('#siteCount').textContent = `已選 ${sel}／${total}`;
+}
+
+function updateGroupBtn() {
+  $('#btnGroup').textContent = '分組：' + levelsLabel() + ' ▾';
+}
+
+function renderGroupList() {
+  const opts = DS.groupOptions || [];
+  $('#groupList').innerHTML = opts.map(([v, t]) => {
+    const idx = state.groupBys.indexOf(v);
+    const badge = idx >= 0 ? ` <span class="tag">第 ${idx + 1} 層</span>` : '';
+    return `<label class="ms-item"><input type="checkbox" data-v="${v}" ${idx >= 0 ? 'checked' : ''}>
+      <span class="ms-name">${t}</span>${badge}</label>`;
+  }).join('');
 }
 
 function renderSites(filterText) {
@@ -897,7 +974,7 @@ function initDashboard(ds, token) {
   state.sites = new Set(ds.sites.map((_, i) => i));
   for (const k of ATTRS) state[k] = new Set();
   state.focusOnly = false; state.templateOnly = false; state.leanSkuOnly = false; state.hideEmpty = true;
-  state.groupBy = 'shop'; state.sortKey = 'curSales'; state.sortDir = 'desc';
+  state.groupBys = ['shop']; state.sortKey = 'curSales'; state.sortDir = 'desc';
   state.view = 'agg'; state.matrixMetric = 'salesYoy';
   // 分組選項：主檔屬性 +（明細檔）檔案分析維度；預設保持「店鋪」
   const groupOpts = TEMPLATE_GROUPINGS.map(k => [k, GROUP_LABEL_JS[k] || k]);
@@ -906,8 +983,9 @@ function initDashboard(ds, token) {
       if (ds.dims[k]) groupOpts.push([k, GROUP_LABEL_JS[k] || k]);
     }
   }
-  $('#groupSel').innerHTML = groupOpts.map(([v, t]) => `<option value="${v}">${t}</option>`).join('');
-  $('#groupSel').value = 'shop';
+  DS.groupOptions = groupOpts;
+  renderGroupList();
+  updateGroupBtn();
   $('#viewSel').value = 'agg';
   $('#metricSel').value = 'salesYoy';
   $('#metricSel').classList.add('hidden');
@@ -1004,7 +1082,7 @@ function collectOpts() {
     class2: [...state.class2], size: [...state.size], type: [...state.type],
     focusOnly: state.focusOnly, templateOnly: state.templateOnly, leanSkuOnly: state.leanSkuOnly,
     hideEmpty: state.hideEmpty,
-    groupBy: state.groupBy, view: state.view, matrixMetric: state.matrixMetric
+    groupBys: [...state.groupBys], view: state.view, matrixMetric: state.matrixMetric
   };
 }
 
@@ -1063,7 +1141,27 @@ $('#btnClear').addEventListener('click', async () => {
 });
 
 $('#yearSel').addEventListener('change', e => { state.year = +e.target.value; resetSort(); buildMonthChips(); render(); });
-$('#groupSel').addEventListener('change', e => { state.groupBy = e.target.value; resetSort(); render(); });
+$('#groupList').addEventListener('change', e => {
+  const cb = e.target.closest('input[type=checkbox]'); if (!cb) return;
+  const v = cb.dataset.v;
+  const idx = state.groupBys.indexOf(v);
+  if (cb.checked) {
+    if (idx === -1) {
+      if (state.groupBys.length >= 3) { cb.checked = false; alert('最多只可以揀 3 層分組。'); return; }
+      state.groupBys.push(v);
+    }
+  } else if (idx >= 0) {
+    state.groupBys.splice(idx, 1);
+  }
+  if (!state.groupBys.length) state.groupBys = ['shop'];  // 唔可以一個都冇，還原為店鋪
+  resetSort();
+  renderGroupList(); updateGroupBtn(); render();
+});
+$('#btnGroupReset').addEventListener('click', () => {
+  state.groupBys = ['shop'];
+  resetSort();
+  renderGroupList(); updateGroupBtn(); render();
+});
 $('#viewSel').addEventListener('change', e => {
   state.view = e.target.value;
   $('#metricSel').classList.toggle('hidden', state.view !== 'matrix');
@@ -1110,8 +1208,10 @@ function buildMonthChipsKeepSel() {
 }
 
 $('#btnSite').addEventListener('click', e => { e.stopPropagation(); $('#sitePanel').classList.toggle('hidden'); });
+$('#btnGroup').addEventListener('click', e => { e.stopPropagation(); $('#groupPanel').classList.toggle('hidden'); });
 document.addEventListener('click', e => {
   if (!e.target.closest('#siteMS')) $('#sitePanel').classList.add('hidden');
+  if (!e.target.closest('#groupMS')) $('#groupPanel').classList.add('hidden');
 });
 $('#siteSearch').addEventListener('input', e => renderSites(e.target.value));
 $('#siteList').addEventListener('change', e => {
