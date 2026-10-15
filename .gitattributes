@@ -1,0 +1,8 @@
+# 統一由 Git 管理行尾：容器（Linux）需要 LF
+* text=auto
+Dockerfile text eol=lf
+*.py text eol=lf
+*.txt text eol=lf
+*.md text eol=lf
+*.html text eol=lf
+*.csv text
