@@ -70,6 +70,15 @@ GROUP_LABELS = {
     'class2': 'Class 2',
     'size': 'Size',
     'type': 'Type',
+    # Hugo_all_YoY 明細檔的額外分析維度
+    'brand': '品牌 Brand',
+    'mch1': '大分類 MCH1',
+    'mch2': '中分類 MCH2',
+    'mc': '品類 MC',
+    'nature': '客群 Nature',
+    'postal': '客源 Postal',
+    'buyer': '買手 Buyer',
+    'sst': 'SST',
 }
 
 # 精簡 SKU 店鋪（進階篩選快速選用；如日後名單有變，改呢個清單即可）
@@ -176,15 +185,17 @@ def load_template():
 # Excel 解析
 # ---------------------------------------------------------------------------
 
+ALL_DIMS = ['brand', 'mch1', 'mch2', 'mc', 'nature', 'postal', 'buyer', 'sst']
+
+
 def parse_excel(fileobj):
     """
-    解析 Hugo_by Shop_YoY 匯出 Excel，回傳 dataset：
-        {
-          'months': ['2024-10', ...],
-          'years':  {'2024': [...], ...},
-          'sites':  [{code, name, regional, class1, class2, size, om, type, focus, inTemplate}, ...],
-          'rows':   [[monthIdx, siteIdx, qty, sales, gp], ...],
-        }
+    解析 Excel，回傳 dataset。自動偵測兩種格式：
+
+    1. Hugo_by Shop_YoY（Month / Shop / …）→ kind='shop'
+       rows = [月份, 店鋪, 銷量, 淨銷售, 毛利]
+    2. Hugo_all_YoY（含 Brand / MCH1 / MCH2 / MC / Nature / Postal 等維度）→ kind='rich'
+       rows 末端追加各分析維度索引；可用維度見 ds['dims']
     """
     try:
         wb = openpyxl.load_workbook(fileobj, read_only=True, data_only=True)
@@ -210,7 +221,7 @@ def parse_excel(fileobj):
 
         if sheet is None:
             raise ValueError(
-                '找不到資料表：檔案需包含 Month、Shop、Net Sales 欄位（Hugo_by Shop_YoY 匯出格式）。')
+                '找不到資料表：檔案需包含 Month、Shop、Net Sales 欄位（Hugo_by Shop_YoY 或 Hugo_all_YoY 匯出格式）。')
 
         i_month = colmap['month']
         i_shop = colmap['shop']
@@ -218,13 +229,21 @@ def parse_excel(fileobj):
         i_qty = colmap.get('soldqty')
         i_cogs = colmap.get('cogs')
         i_gp = colmap.get('gp$')
+        # 額外分析維度（Hugo_all_YoY 明細檔才有）
+        dim_cols = {k: colmap.get(k) for k in ALL_DIMS}
+        rich = any(v is not None for v in dim_cols.values())
 
         def cell(row, i):
             return row[i] if (i is not None and i < len(row)) else None
 
-        agg = {}          # (month, code) -> [qty, sales, gp]
-        excel_names = {}  # code -> 店名（取自 Excel 的 'CODE - 店名' 格式）
+        def cell_str(row, i):
+            v = cell(row, i)
+            return str(v).strip() if v is not None else ''
+
+        agg = {}            # (month, code[, 各維度值…]) -> [qty, sales, gp]
+        excel_names = {}    # code -> 店名（取自 Excel 的 'CODE - 店名' 格式）
         months_set = set()
+        dim_valuesets = {k: set() for k in ALL_DIMS}
 
         for row in sheet.iter_rows(min_row=header_i + 1, values_only=True):
             if row is None or len(row) <= max(i_month, i_shop):
@@ -251,7 +270,15 @@ def parse_excel(fileobj):
             else:
                 gp = sales - _num(cell(row, i_cogs))
 
-            key = (m, code)
+            if rich:
+                dv = []
+                for k in ALL_DIMS:
+                    v = cell_str(row, dim_cols[k])
+                    dim_valuesets[k].add(v)
+                    dv.append(v)
+                key = (m, code) + tuple(dv)
+            else:
+                key = (m, code)
             t = agg.get(key)
             if t is None:
                 agg[key] = [qty, sales, gp]
@@ -271,7 +298,7 @@ def parse_excel(fileobj):
         tpl = load_template()
         sites = []
         s_idx = {}
-        for code in sorted({c for _, c in agg}):
+        for code in sorted({k[1] for k in agg}):
             t = tpl.get(code)
             sites.append({
                 'code': code,
@@ -288,21 +315,42 @@ def parse_excel(fileobj):
             })
             s_idx[code] = len(sites) - 1
 
+        # 可分析維度：有欄位且值多過一個先至有用
+        dims = {}
+        if rich:
+            pos = 5
+            for k in ALL_DIMS:
+                if dim_cols[k] is None:
+                    continue
+                vals = sorted(dim_valuesets[k])
+                if len(vals) < 2:
+                    continue
+                dims[k] = {'values': vals, 'pos': pos, 'idx': {v: i for i, v in enumerate(vals)}}
+                pos += 1
+
         rows = []
-        for (m, code), (qty, sales, gp) in agg.items():
-            rows.append([
-                m_idx[m], s_idx[code],
-                int(round(qty)),
-                round(sales, 2),
-                round(gp, 2),
-            ])
+        if not rich:
+            for (m, code), (qty, sales, gp) in agg.items():
+                rows.append([m_idx[m], s_idx[code], int(round(qty)), round(sales, 2), round(gp, 2)])
+        else:
+            for key, (qty, sales, gp) in agg.items():
+                m, code = key[0], key[1]
+                dim_vals = key[2:]
+                r = [m_idx[m], s_idx[code], int(round(qty)), round(sales, 2), round(gp, 2)]
+                for j, k in enumerate(ALL_DIMS):
+                    d = dims.get(k)
+                    if d is None:
+                        continue
+                    r.append(d['idx'][dim_vals[j]])
+                rows.append(r)
         rows.sort(key=lambda r: (r[0], r[1]))
 
         years = {}
         for m in months:
             years.setdefault(m[:4], []).append(m)
 
-        return {
+        ds = {
+            'kind': 'rich' if rich else 'shop',
             'months': months,
             'years': years,
             'sites': sites,
@@ -311,6 +359,9 @@ def parse_excel(fileobj):
             'rowCount': len(rows),
             'siteCount': len(sites),
         }
+        if rich:
+            ds['dims'] = {k: {'values': d['values'], 'pos': d['pos']} for k, d in dims.items()}
+        return ds
     finally:
         wb.close()
 
@@ -319,17 +370,29 @@ def parse_excel(fileobj):
 # YoY 計算（匯出用；與前端 index.html 的邏輯一致）
 # ---------------------------------------------------------------------------
 
-def _select_groups(ds, opts):
-    """依篩選條件建立分組（店鋪或屬性分組）。
+def _resolve_grouping(ds, opts):
+    """回傳 (mode, groupby)：mode = 'site'（店鋪／主檔屬性）或 'dim'（檔案分析維度）。"""
+    g = opts.get('groupBy') or 'shop'
+    if g in GROUP_FIELDS:
+        return 'site', g
+    if g in (ds.get('dims') or {}):
+        return 'dim', g
+    return 'site', 'shop'
 
-    回傳 (groups, site_group, pass_count)：
-      groups      key -> 組別資料（含 label / n / cur / ly）
-      site_group  site index -> group key（未通過篩選的不在此）
+
+def _prepare(ds, opts):
+    """建立店鋪篩選結果、分組容器及分組方式。
+
+    回傳 dict：
+      mode        'site' | 'dim'
+      groupby     實際分組鍵
+      groups      'site' 模式預先建立；'dim' 模式由 row 逐個建立
+      site_group  site index -> group key（只限 'site' 模式）
+      pass_set    通過篩選的 site index 集合
       pass_count  通過篩選的店鋪數
     """
     sites = ds['sites']
-    groupby = opts.get('groupBy') or 'shop'
-    gfield = GROUP_FIELDS.get(groupby)
+    mode, groupby = _resolve_grouping(ds, opts)
 
     sel_codes = opts.get('siteCodes')
     sel_codes = {str(c) for c in sel_codes} if sel_codes else None
@@ -352,31 +415,58 @@ def _select_groups(ds, opts):
 
     groups = {}
     site_group = {}
-    pass_count = 0
-    for i, s in enumerate(sites):
-        if not site_pass(s):
-            continue
-        pass_count += 1
-        if gfield is None:
-            key = 'site:' + s['code']
-            groups[key] = {
-                'label': (s['code'] + (' ' + s['name'] if s['name'] else '')).strip(),
-                'code': s['code'], 'name': s['name'],
-                'regional': s['regional'], 'om': s['om'],
-                'class1': s['class1'], 'class2': s['class2'],
-                'size': s['size'], 'type': s['type'], 'focus': s['focus'],
-                'n': 1, 'cur': [0.0, 0.0, 0.0], 'ly': [0.0, 0.0, 0.0],
-            }
-        else:
-            val = (s.get(gfield) or '').strip() or '（未分類）'
-            key = gfield + ':' + val
-            g = groups.get(key)
-            if g is None:
-                g = {'label': val, 'n': 0, 'cur': [0.0, 0.0, 0.0], 'ly': [0.0, 0.0, 0.0]}
-                groups[key] = g
-            g['n'] += 1
-        site_group[i] = key
-    return groups, site_group, pass_count
+    pass_set = set()
+    if mode == 'site':
+        gfield = GROUP_FIELDS.get(groupby)
+        for i, s in enumerate(sites):
+            if not site_pass(s):
+                continue
+            pass_set.add(i)
+            if gfield is None:
+                key = 'site:' + s['code']
+                groups[key] = {
+                    'label': (s['code'] + (' ' + s['name'] if s['name'] else '')).strip(),
+                    'code': s['code'], 'name': s['name'],
+                    'regional': s['regional'], 'om': s['om'],
+                    'class1': s['class1'], 'class2': s['class2'],
+                    'size': s['size'], 'type': s['type'], 'focus': s['focus'],
+                    'n': 1, 'cur': [0.0, 0.0, 0.0], 'ly': [0.0, 0.0, 0.0],
+                }
+            else:
+                val = (s.get(gfield) or '').strip() or '（未分類）'
+                key = gfield + ':' + val
+                g = groups.get(key)
+                if g is None:
+                    g = {'label': val, 'n': 0, 'cur': [0.0, 0.0, 0.0], 'ly': [0.0, 0.0, 0.0]}
+                    groups[key] = g
+                g['n'] += 1
+            site_group[i] = key
+    else:
+        for i, s in enumerate(sites):
+            if site_pass(s):
+                pass_set.add(i)
+
+    return {
+        'mode': mode, 'groupby': groupby,
+        'groups': groups, 'site_group': site_group, 'pass_set': pass_set,
+        'pass_count': len(pass_set),
+    }
+
+
+def _dim_group(ds, prep, groups, row, si):
+    """dim 模式：取得／建立該 row 所屬的維度組別。"""
+    d = ds['dims'][prep['groupby']]
+    val = d['values'][row[d['pos']]] or '（未分類）'
+    key = 'd:' + val
+    g = groups.get(key)
+    if g is None:
+        g = {'label': val, 'n': 0,
+             'cur': [0.0, 0.0, 0.0], 'ly': [0.0, 0.0, 0.0], '_shops': set()}
+        groups[key] = g
+    if si not in g['_shops']:
+        g['_shops'].add(si)
+        g['n'] += 1
+    return g
 
 
 def compute_report(ds, opts):
@@ -387,23 +477,32 @@ def compute_report(ds, opts):
     month_nums = {m[5:7] for m in months}
     months_list = ds['months']
 
-    groups, site_group, pass_count = _select_groups(ds, opts)
+    prep = _prepare(ds, opts)
+    groups = prep['groups']
+    mode = prep['mode']
+    site_group = prep['site_group']
+    pass_set = prep['pass_set']
 
     ystr, lystr = str(year), str(lyear)
-    for mi, si, qty, sales, gp in ds['rows']:
-        key = site_group.get(si)
-        if key is None:
+    for row in ds['rows']:
+        si = row[1]
+        if si not in pass_set:
             continue
-        m = months_list[mi]
+        m = months_list[row[0]]
         if m[:4] == ystr and m in months:
-            target = groups[key]['cur']
+            target = 'cur'
         elif m[:4] == lystr and m[5:7] in month_nums:
-            target = groups[key]['ly']
+            target = 'ly'
         else:
             continue
-        target[0] += qty
-        target[1] += sales
-        target[2] += gp
+        if mode == 'site':
+            g = groups[site_group[si]]
+        else:
+            g = _dim_group(ds, prep, groups, row, si)
+        t = g[target]
+        t[0] += row[2]
+        t[1] += row[3]
+        t[2] += row[4]
 
     hide_empty = opts.get('hideEmpty', True)
     out = []
@@ -419,7 +518,7 @@ def compute_report(ds, opts):
             totals['cur'][j] += g['cur'][j]
             totals['ly'][j] += g['ly'][j]
 
-    return {'groups': out, 'totals': totals, 'siteCount': pass_count}
+    return {'groups': out, 'totals': totals, 'siteCount': prep['pass_count']}
 
 
 def compute_matrix(ds, opts):
@@ -428,30 +527,44 @@ def compute_matrix(ds, opts):
     lyear = year - 1
     months = sorted({str(m) for m in (opts.get('months') or [])})
     ly_of = {('%d-%s' % (lyear, m[5:7])): m for m in months}
-
-    groups, site_group, pass_count = _select_groups(ds, opts)
-    for g in groups.values():
-        g['cells'] = {m: [0.0, 0.0, 0.0] for m in months}
-        g['cellsLy'] = {m: [0.0, 0.0, 0.0] for m in months}
-        g['aggCur'] = [0.0, 0.0, 0.0]
-        g['aggLy'] = [0.0, 0.0, 0.0]
-
     months_list = ds['months']
-    for mi, si, qty, sales, gp in ds['rows']:
-        key = site_group.get(si)
-        if key is None:
+
+    prep = _prepare(ds, opts)
+    groups = prep['groups']
+    mode = prep['mode']
+    site_group = prep['site_group']
+    pass_set = prep['pass_set']
+
+    def ensure_cells(g):
+        if 'cells' not in g:
+            g['cells'] = {m: [0.0, 0.0, 0.0] for m in months}
+            g['cellsLy'] = {m: [0.0, 0.0, 0.0] for m in months}
+            g['aggCur'] = [0.0, 0.0, 0.0]
+            g['aggLy'] = [0.0, 0.0, 0.0]
+
+    for row in ds['rows']:
+        si = row[1]
+        if si not in pass_set:
             continue
-        m = months_list[mi]
+        m = months_list[row[0]]
         if m in months:
-            cell = groups[key]['cells'][m]
+            tname, cm = 'cells', m
         elif m in ly_of:
-            cell = groups[key]['cellsLy'][ly_of[m]]  # 去年同月掛到同一欄
+            tname, cm = 'cellsLy', ly_of[m]
         else:
             continue
-        cell[0] += qty
-        cell[1] += sales
-        cell[2] += gp
+        if mode == 'site':
+            g = groups[site_group[si]]
+        else:
+            g = _dim_group(ds, prep, groups, row, si)
+        ensure_cells(g)
+        cell = g[tname][cm]
+        cell[0] += row[2]
+        cell[1] += row[3]
+        cell[2] += row[4]
 
+    for g in groups.values():
+        ensure_cells(g)
     for g in groups.values():
         for m in months:
             for j in range(3):
@@ -481,7 +594,7 @@ def compute_matrix(ds, opts):
             totals['aggCur'][j] += g['aggCur'][j]
             totals['aggLy'][j] += g['aggLy'][j]
 
-    return {'groups': out, 'months': months, 'totals': totals, 'siteCount': pass_count}
+    return {'groups': out, 'months': months, 'totals': totals, 'siteCount': prep['pass_count']}
 
 
 def _matrix_value(cur, ly, metric):
@@ -614,7 +727,7 @@ def build_workbook(ds, opts, report):
             ('Class 2', 'text', 8), ('Size', 'text', 7), ('Type', 'text', 6), ('需關注', 'text', 7),
         ]
     else:
-        lead = [('分組', 'label', 24), ('店鋪數', 'qty', 9)]
+        lead = [(GROUP_LABELS.get(groupby, '分組'), 'label', 26), ('店鋪數', 'qty', 9)]
     kinds = ['money', 'money', 'yoy', 'qty', 'qty', 'yoy', 'money', 'money', 'yoy', 'pct', 'pct', 'pp']
     kind_width = {'money': 15, 'qty': 11, 'yoy': 10, 'pct': 11, 'pp': 10, 'text': 9, 'label': 26}
 
@@ -807,7 +920,7 @@ def build_matrix_workbook(ds, opts, matrix):
             ('Class 2', 'text', 8), ('Size', 'text', 7), ('Type', 'text', 6), ('需關注', 'text', 7),
         ]
     else:
-        lead = [('分組', 'label', 24), ('店鋪數', 'qty', 9)]
+        lead = [(GROUP_LABELS.get(groupby, '分組'), 'label', 26), ('店鋪數', 'qty', 9)]
 
     ncols = len(lead) + len(sections) * (len(months) + 1)
 

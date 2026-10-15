@@ -5,7 +5,10 @@
 
 ## 功能
 
-- 上載 `Hugo_by Shop_YoY_*.xlsx`（拖放或點擊選擇）
+- 上載兩款檔案（自動偵測）：
+  - `Hugo_by Shop_YoY_*.xlsx`（店鋪級每月匯總）
+  - `Hugo_all_YoY_*.xlsx`（**SKU 明細**：含 Brand／MCH1／MCH2／MC／Nature／Postal 等維度）
+- **多維度分析**（明細檔限定）：「分組」下拉新增 **品牌 Brand／大分類 MCH1／中分類 MCH2／品類 MC／客群 Nature／客源 Postal／買手 Buyer**；預設仍然係「**店鋪 Site**」
 - 自動對照 `stores-template.csv`，為每間店補上 Regional／Class 1／Class 2／Size／OM／Type／需特別關注 等屬性
 - 篩選：**Site**（可搜尋、多選）、**年份**、**月份**（單月 = 單月 YoY；多月 = 累計 YoY，例如 1–9 月 YTD）
 - 檢視模式：**累計**（合併所選月份）或 **按月矩陣**（每店一行、每月一欄，尾加「合計」欄；指標可揀：淨銷售／銷量／GP$／GP%／數值／**全部指標**／**全部指標＋值**——後兩者四組（或八組）指標並排、可橫向捲動）
