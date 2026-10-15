@@ -1394,6 +1394,35 @@ def _store_dataset(ds):
     return token
 
 
+def _cache_task_response(task_id):
+    """完成後預先序列化回應（大檔自動 gzip）。
+
+    輪詢 /api/progress 時可直接回傳同一份 bytes，避免每次輪詢都重新
+    json.dumps＋gzip（大檔可省大量 CPU 同等候時間）；超過 8MB 就不暫存。
+    """
+    try:
+        with _TASKS_LOCK:
+            tk = _TASKS.get(task_id)
+            if tk is None or tk.get('status') != 'done' or tk.get('ds') is None:
+                return
+            resp = {'ok': True, 'status': 'done', 'pct': 100.0, 'msg': '完成',
+                    'token': tk.get('token'), 'dataset': tk['ds'],
+                    'ttlHours': DATA_TTL_HOURS}
+        payload = json.dumps(resp, ensure_ascii=False, separators=(',', ':')).encode('utf-8')
+        if len(payload) > 8 * 1024 * 1024:
+            return  # 太大就唔暫存，輪詢時即時序列化
+        gz = gzip.compress(payload, 6) if len(payload) > 200 * 1024 else b''
+        body, is_gz = (gz, True) if (gz and len(gz) < len(payload)) else (payload, False)
+        with _TASKS_LOCK:
+            tk = _TASKS.get(task_id)
+            if tk is not None and tk.get('status') == 'done' and tk.get('ds') is not None:
+                tk['resp_body'] = body
+                tk['resp_gz'] = is_gz
+                tk['resp_served'] = 0
+    except Exception:  # noqa: BLE001 - 暫存失敗唔影響主流程
+        pass
+
+
 def _parse_task(task_id, filename, data):
     """背景解析任務：持續更新進度，完成後存入 _DATASETS。"""
     def progress(pct, msg=''):
@@ -1413,6 +1442,7 @@ def _parse_task(task_id, filename, data):
             tk = _TASKS.get(task_id)
             if tk is not None:
                 tk.update(status='done', pct=100.0, msg='完成', token=token, ds=ds, ts=time.time())
+        _cache_task_response(task_id)
     except ValueError as e:
         with _TASKS_LOCK:
             tk = _TASKS.get(task_id)
@@ -1447,25 +1477,44 @@ def api_upload():
 @app.get('/api/progress/<task_id>')
 def api_progress(task_id):
     """查詢解析進度；status = parsing / done / error。完成時一併回傳數據（大檔自動 gzip）。"""
+    cached = None
+    cached_gz = False
+    resp = None
+    accepts_gzip = 'gzip' in (request.headers.get('Accept-Encoding') or '')
     with _TASKS_LOCK:
         tk = _TASKS.get(task_id)
         if tk is None:
             return jsonify({'ok': False, 'error': '任務不存在或已過期，請重新上載。'}), 404
-        resp = {'ok': True, 'status': tk['status'], 'pct': round(tk['pct'], 1), 'msg': tk.get('msg') or ''}
-        if tk['status'] == 'done':
-            resp['token'] = tk['token']
-            resp['dataset'] = tk['ds']
-            resp['ttlHours'] = DATA_TTL_HOURS
-        elif tk['status'] == 'error':
-            resp['error'] = tk.get('error') or '解析失敗'
+        body = tk.get('resp_body')
+        if body is not None and (not tk.get('resp_gz') or accepts_gzip):
+            cached, cached_gz = body, bool(tk.get('resp_gz'))
+            tk['resp_served'] = tk.get('resp_served', 0) + 1
+            if tk['resp_served'] >= 3:
+                tk.pop('resp_body', None)  # 已送出數次；釋放暫存，之後即時序列化
+        else:
+            resp = {'ok': True, 'status': tk['status'], 'pct': round(tk['pct'], 1), 'msg': tk.get('msg') or ''}
+            if tk['status'] == 'done':
+                resp['token'] = tk['token']
+                resp['dataset'] = tk['ds']
+                resp['ttlHours'] = DATA_TTL_HOURS
+            elif tk['status'] == 'error':
+                resp['error'] = tk.get('error') or '解析失敗'
+
+    headers = {'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store'}
+    if cached is not None:
+        if cached_gz:
+            headers['Content-Encoding'] = 'gzip'
+            headers['Vary'] = 'Accept-Encoding'
+        return Response(cached, 200, headers)
 
     payload = json.dumps(resp, ensure_ascii=False, separators=(',', ':')).encode('utf-8')
-    if len(payload) > 200 * 1024 and 'gzip' in (request.headers.get('Accept-Encoding') or ''):
+    if len(payload) > 200 * 1024 and accepts_gzip:
         gz = gzip.compress(payload, 6)
         if len(gz) < len(payload):
-            return Response(gz, 200, {'Content-Type': 'application/json; charset=utf-8',
-                                      'Content-Encoding': 'gzip', 'Vary': 'Accept-Encoding'})
-    return Response(payload, 200, {'Content-Type': 'application/json; charset=utf-8'})
+            headers['Content-Encoding'] = 'gzip'
+            headers['Vary'] = 'Accept-Encoding'
+            return Response(gz, 200, headers)
+    return Response(payload, 200, headers)
 
 
 @app.post('/api/clear-all')

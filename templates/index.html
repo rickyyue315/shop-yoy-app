@@ -1769,8 +1769,21 @@ function initDashboard(ds, token) {
   render();
 }
 
-/* ---------------- 上載（背景解析 + 進度條） ---------------- */
+/* ---------------- 上載（背景解析 + 進度條 + 斷線自動重試） ---------------- */
 let UPLOADING = false;
+
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+/** fetch 加逾時（AbortController）：避免請求永久掛起，令畫面好似「當機」。 */
+async function fetchTimeout(url, opts, ms) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms);
+  try {
+    return await fetch(url, Object.assign({}, opts, { signal: ctrl.signal }));
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 function showError(msg) {
   const el = $('#uploadError');
@@ -1789,14 +1802,37 @@ function setProgress(pct, msg) {
 }
 
 async function pollUploadProgress(taskID) {
+  let fails = 0, pct = 2, lastErr = null;
   for (;;) {
-    const res = await fetch('/api/progress/' + taskID);
-    const j = await res.json().catch(() => ({}));
-    if (!res.ok || !j.ok) throw new Error(j.error || ('HTTP ' + res.status));
-    if (j.status === 'done') { setProgress(100, '正在載入數據…'); return j; }
-    if (j.status === 'error') throw new Error(j.error || '解析失敗');
-    setProgress(j.pct || 0, j.msg || '正在解析檔案…');
-    await new Promise(r => setTimeout(r, 400));
+    let res = null, j = null, retryable = false;
+    try {
+      res = await fetchTimeout('/api/progress/' + taskID, {}, 30000);
+      j = await res.json().catch(() => ({}));
+      if (res.ok && j.ok) {
+        if (j.status === 'done') { setProgress(100, '正在載入數據…'); return j; }
+        if (j.status === 'error') { const e = new Error(j.error || '解析失敗'); e.fatal = true; throw e; }
+        fails = 0; lastErr = null;
+        pct = j.pct || 0;
+        setProgress(pct, j.msg || '正在解析檔案…');
+        await sleep(400);
+        continue;
+      }
+      lastErr = new Error(j.error || ('HTTP ' + res.status));
+      // 404／5xx／回應格式異常，多數係服務正在重新部署或短暫問題 → 重試
+      retryable = res.status === 404 || res.status >= 500 || res.ok;
+    } catch (e) {
+      if (e && e.fatal) throw e;
+      lastErr = e; retryable = true;  // 網絡中斷或逾時
+    }
+    if (!retryable) throw lastErr;
+    fails++;
+    if (fails > 6) {
+      throw (lastErr && lastErr.name === 'AbortError')
+        ? new Error('伺服器回應逾時，請檢查網絡後重新上載。')
+        : (lastErr || new Error('與伺服器連線中斷，請檢查網絡後重新上載。'));
+    }
+    setProgress(pct, `連線不穩或服務正在更新，重試中（${fails}/6）…`);
+    await sleep(600 * fails);
   }
 }
 
@@ -1810,7 +1846,7 @@ async function doUpload(file) {
   try {
     const fd = new FormData();
     fd.append('file', file);
-    const res = await fetch('/api/upload', { method: 'POST', body: fd });
+    const res = await fetchTimeout('/api/upload', { method: 'POST', body: fd }, 300000);
     const j = await res.json().catch(() => ({}));
     if (!res.ok || !j.ok) throw new Error(j.error || ('HTTP ' + res.status));
     setProgress(2, '正在解析檔案…');
@@ -1818,7 +1854,8 @@ async function doUpload(file) {
     TTL = out.ttlHours || 0;
     initDashboard(out.dataset, out.token);
   } catch (e) {
-    showError('上載失敗：' + e.message);
+    const msg = (e && e.name === 'AbortError') ? '上載逾時，請重試。' : (e && e.message) || e;
+    showError('上載失敗：' + msg);
   } finally {
     UPLOADING = false;
     $('#uploadBusy').classList.add('hidden');
