@@ -30,6 +30,11 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from flask import Flask, Response, jsonify, render_template, request, send_file
 
+try:  # 快速 Excel 讀取引擎（Rust 實作，比 openpyxl 快 10 倍以上）
+    from python_calamine import CalamineWorkbook
+except Exception:  # pragma: no cover - 未安裝時自動退回 openpyxl
+    CalamineWorkbook = None
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 TEMPLATE_CSV = os.path.join(BASE_DIR, 'stores-template.csv')
 
@@ -249,6 +254,72 @@ def _count_rows_quick(data, sheet_name):
         return 0
 
 
+def _header_colmap(row):
+    """如果呢行係表頭（含 Month / Shop / Net Sales）就回傳欄位對照，唔係就 None。"""
+    cells = {}
+    for ci, cv in enumerate(row or ()):
+        if cv is None or cv == '':
+            continue
+        cells[_norm(cv)] = ci
+    if 'month' in cells and 'shop' in cells and 'netsales' in cells:
+        return cells
+    return None
+
+
+def _scan_sheets_calamine(wb):
+    for name in wb.sheet_names:
+        ws = wb.get_sheet_by_name(name)
+        it = ws.iter_rows()
+        for ri in range(1, 11):
+            row = next(it, None)
+            if row is None:
+                break
+            cm = _header_colmap(row)
+            if cm:
+                return name, ri, cm, it, None
+    return None
+
+
+def _scan_sheets_openpyxl(wb):
+    for sh in wb.worksheets:
+        if getattr(sh, 'sheet_state', 'visible') != 'visible':
+            continue
+        it = sh.iter_rows(values_only=True)
+        for ri in range(1, 11):
+            row = next(it, None)
+            if row is None:
+                break
+            cm = _header_colmap(row)
+            if cm:
+                return sh.title, ri, cm, it, wb.close
+    return None
+
+
+def _find_header_reader(data):
+    """開啟 Excel 並搵表頭（每張工作表頭 10 行內）。
+
+    回傳 (sheet_title, header_index, colmap, row_iter, close_fn)；
+    開得到但搵唔到表頭就回傳 None。優先用 python-calamine（快），
+    失敗或唔支援就退回 openpyxl。
+    """
+    if CalamineWorkbook is not None:
+        try:
+            wb = CalamineWorkbook.from_filelike(io.BytesIO(data))
+            found = _scan_sheets_calamine(wb)
+            if found:
+                return found
+        except Exception:
+            pass
+    try:
+        wb = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True)
+    except Exception:
+        raise ValueError('無法讀取檔案，請確認為有效的 Excel (.xlsx) 檔案。')
+    found = _scan_sheets_openpyxl(wb)
+    if not found:
+        wb.close()
+    return found
+
+
 def parse_excel(data, progress=None):
     """
     解析 Excel（bytes），回傳 dataset。自動偵測兩種格式：
@@ -258,6 +329,7 @@ def parse_excel(data, progress=None):
     2. Hugo_all_YoY（含 Brand / MCH1 / MCH2 / MC / Nature / Postal 等維度）→ kind='rich'
        rows 末端追加各分析維度索引；可用維度見 ds['dims']
 
+    讀取優先使用 python-calamine（快 10 倍以上）；未安裝或失敗時自動退回 openpyxl。
     progress(pct, msg)：可選進度回呼（0-100）。
     """
     def cb(pct, msg=''):
@@ -268,34 +340,15 @@ def parse_excel(data, progress=None):
                 pass
 
     cb(1, '讀取檔案…')
-    try:
-        wb = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True)
-    except Exception:
-        raise ValueError('無法讀取檔案，請確認為有效的 Excel (.xlsx) 檔案。')
+    cb(3, '尋找資料表…')
+    found = _find_header_reader(data)
+    if found is None:
+        raise ValueError(
+            '找不到資料表：檔案需包含 Month、Shop、Net Sales 欄位（Hugo_by Shop_YoY 或 Hugo_all_YoY 匯出格式）。')
+    sheet_title, header_i, colmap, row_iter, close_fn = found
 
     try:
-        cb(3, '尋找資料表…')
-        sheet = header_i = colmap = None
-        for sh in wb.worksheets:
-            if getattr(sh, 'sheet_state', 'visible') != 'visible':
-                continue
-            for ri, row in enumerate(sh.iter_rows(min_row=1, max_row=10, values_only=True), 1):
-                cells = {}
-                for ci, cv in enumerate(row or ()):
-                    if cv is None:
-                        continue
-                    cells[_norm(cv)] = ci
-                if 'month' in cells and 'shop' in cells and 'netsales' in cells:
-                    sheet, header_i, colmap = sh, ri, cells
-                    break
-            if sheet is not None:
-                break
-
-        if sheet is None:
-            raise ValueError(
-                '找不到資料表：檔案需包含 Month、Shop、Net Sales 欄位（Hugo_by Shop_YoY 或 Hugo_all_YoY 匯出格式）。')
-
-        total_rows = _count_rows_quick(data, sheet.title)
+        total_rows = _count_rows_quick(data, sheet_title)
         cb(6, '解析資料…')
 
         i_month = colmap['month']
@@ -321,7 +374,7 @@ def parse_excel(data, progress=None):
         dim_valuesets = {k: set() for k in ALL_DIMS}
 
         processed = 0
-        for row in sheet.iter_rows(min_row=header_i + 1, values_only=True):
+        for row in row_iter:
             processed += 1
             if total_rows and processed % 2000 == 0:
                 cb(6 + 88 * min(1.0, processed / total_rows),
@@ -446,7 +499,8 @@ def parse_excel(data, progress=None):
         cb(99, '即將完成…')
         return ds
     finally:
-        wb.close()
+        if close_fn:
+            close_fn()
 
 
 # ---------------------------------------------------------------------------

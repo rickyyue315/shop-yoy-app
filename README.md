@@ -99,6 +99,13 @@ git push -u origin main
 
 > 如果完全唔想有公開網址：唔好為服務產生 Public Domain（服務就只存在於 Zeabur 內部網絡）；或改為只在本機執行 `python app.py`（只有自己電腦用得到，不會曝露上網）。
 
+## 效能
+
+- Excel 解析引擎：**python-calamine**（Rust 實作，比 openpyxl 快約 10 倍）
+- 實測速度：店鋪級檔（約 2 千行）< 0.1 秒；明細檔 39k 行約 **0.8 秒**；150k 行約 **2.6 秒**
+- 如環境未安裝 python-calamine，會自動退回 openpyxl（功能相同、較慢）
+- 萬一 calamine 讀唔到某檔案，亦會自動嘗試 openpyxl，唔會失敗
+
 ## 常見問題
 
 | 情況 | 處理 |
