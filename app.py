@@ -61,6 +61,17 @@ GROUP_LABELS = {
     'type': 'Type',
 }
 
+# 按月矩陣的可用指標：metric -> (顯示種類, 標籤)
+MATRIX_METRICS = {
+    'salesYoy': ('yoy', '淨銷售 YoY%'),
+    'qtyYoy': ('yoy', '銷量 YoY%'),
+    'gpYoy': ('yoy', '毛利 GP$ YoY%'),
+    'gpPp': ('pp', '毛利率 ±pp'),
+    'salesVal': ('money', '淨銷售'),
+    'qtyVal': ('qty', '銷量'),
+    'gpVal': ('money', '毛利 GP$'),
+}
+
 
 # ---------------------------------------------------------------------------
 # 小工具
@@ -289,12 +300,14 @@ def parse_excel(fileobj):
 # YoY 計算（匯出用；與前端 index.html 的邏輯一致）
 # ---------------------------------------------------------------------------
 
-def compute_report(ds, opts):
-    year = int(opts.get('year'))
-    lyear = year - 1
-    months = {str(m) for m in (opts.get('months') or [])}
-    month_nums = {m[5:7] for m in months}
-    months_list = ds['months']
+def _select_groups(ds, opts):
+    """依篩選條件建立分組（店鋪或屬性分組）。
+
+    回傳 (groups, site_group, pass_count)：
+      groups      key -> 組別資料（含 label / n / cur / ly）
+      site_group  site index -> group key（未通過篩選的不在此）
+      pass_count  通過篩選的店鋪數
+    """
     sites = ds['sites']
     groupby = opts.get('groupBy') or 'shop'
     gfield = GROUP_FIELDS.get(groupby)
@@ -342,6 +355,18 @@ def compute_report(ds, opts):
                 groups[key] = g
             g['n'] += 1
         site_group[i] = key
+    return groups, site_group, pass_count
+
+
+def compute_report(ds, opts):
+    """累計模式：所選月份合併，與去年同期比較。"""
+    year = int(opts.get('year'))
+    lyear = year - 1
+    months = {str(m) for m in (opts.get('months') or [])}
+    month_nums = {m[5:7] for m in months}
+    months_list = ds['months']
+
+    groups, site_group, pass_count = _select_groups(ds, opts)
 
     ystr, lystr = str(year), str(lyear)
     for mi, si, qty, sales, gp in ds['rows']:
@@ -374,6 +399,128 @@ def compute_report(ds, opts):
             totals['ly'][j] += g['ly'][j]
 
     return {'groups': out, 'totals': totals, 'siteCount': pass_count}
+
+
+def compute_matrix(ds, opts):
+    """按月矩陣：每個組別 × 每個所選月份（本期與去年同期分開存放）。"""
+    year = int(opts.get('year'))
+    lyear = year - 1
+    months = sorted({str(m) for m in (opts.get('months') or [])})
+    ly_of = {('%d-%s' % (lyear, m[5:7])): m for m in months}
+
+    groups, site_group, pass_count = _select_groups(ds, opts)
+    for g in groups.values():
+        g['cells'] = {m: [0.0, 0.0, 0.0] for m in months}
+        g['cellsLy'] = {m: [0.0, 0.0, 0.0] for m in months}
+        g['aggCur'] = [0.0, 0.0, 0.0]
+        g['aggLy'] = [0.0, 0.0, 0.0]
+
+    months_list = ds['months']
+    for mi, si, qty, sales, gp in ds['rows']:
+        key = site_group.get(si)
+        if key is None:
+            continue
+        m = months_list[mi]
+        if m in months:
+            cell = groups[key]['cells'][m]
+        elif m in ly_of:
+            cell = groups[key]['cellsLy'][ly_of[m]]  # 去年同月掛到同一欄
+        else:
+            continue
+        cell[0] += qty
+        cell[1] += sales
+        cell[2] += gp
+
+    for g in groups.values():
+        for m in months:
+            for j in range(3):
+                g['aggCur'][j] += g['cells'][m][j]
+                g['aggLy'][j] += g['cellsLy'][m][j]
+
+    hide_empty = opts.get('hideEmpty', True)
+    out = []
+    for g in groups.values():
+        if hide_empty and not any(g['aggCur']) and not any(g['aggLy']):
+            continue
+        out.append(g)
+    out.sort(key=lambda g: (-g['aggCur'][1], g['label']))
+
+    totals = {
+        'cells': {m: [0.0, 0.0, 0.0] for m in months},
+        'cellsLy': {m: [0.0, 0.0, 0.0] for m in months},
+        'aggCur': [0.0, 0.0, 0.0],
+        'aggLy': [0.0, 0.0, 0.0],
+    }
+    for g in out:
+        for m in months:
+            for j in range(3):
+                totals['cells'][m][j] += g['cells'][m][j]
+                totals['cellsLy'][m][j] += g['cellsLy'][m][j]
+        for j in range(3):
+            totals['aggCur'][j] += g['aggCur'][j]
+            totals['aggLy'][j] += g['aggLy'][j]
+
+    return {'groups': out, 'months': months, 'totals': totals, 'siteCount': pass_count}
+
+
+def _matrix_value(cur, ly, metric):
+    """按月矩陣的單格數值。cur / ly = [qty, sales, gp]；無法計算回傳 None。"""
+    if metric == 'qtyYoy':
+        return ((cur[0] - ly[0]) / ly[0]) if ly[0] > 0 else None
+    if metric == 'gpYoy':
+        return ((cur[2] - ly[2]) / ly[2]) if ly[2] > 0 else None
+    if metric == 'gpPp':
+        pc = (cur[2] / cur[1]) if cur[1] else None
+        pl = (ly[2] / ly[1]) if ly[1] else None
+        return (pc - pl) if (pc is not None and pl is not None) else None
+    if metric == 'salesVal':
+        return cur[1]
+    if metric == 'qtyVal':
+        return cur[0]
+    if metric == 'gpVal':
+        return cur[2]
+    # 預設：淨銷售 YoY%
+    return ((cur[1] - ly[1]) / ly[1]) if ly[1] > 0 else None
+
+
+def _filter_summary(opts):
+    parts = ['Site：%s' % ('全部' if not opts.get('siteCodes') else '%d 間' % len(opts['siteCodes']))]
+    for label, key in (('Regional', 'regional'), ('OM', 'om'), ('Class 1', 'class1'),
+                       ('Class 2', 'class2'), ('Size', 'size'), ('Type', 'type')):
+        vals = opts.get(key) or []
+        if vals:
+            parts.append('%s：%s' % (label, '、'.join(str(v) for v in vals)))
+    if opts.get('focusOnly'):
+        parts.append('只顯示需特別關注店鋪')
+    if opts.get('templateOnly'):
+        parts.append('只顯示 stores-template 內店鋪')
+    return '；'.join(parts)
+
+
+def _write_title_block(ws, ds, opts, months, ly_months, extra_line=''):
+    """匯出檔的標題區（A1-A6）。"""
+    year = int(opts['year'])
+    ws['A1'] = 'Shop YoY 分析報告'
+    ws['A1'].font = Font(size=16, bold=True, color='0F172A')
+    ws['A2'] = '資料檔：%s（上載時間：%s）' % (ds.get('filename', ''), ds.get('uploadedAt', ''))
+    ws['A2'].font = Font(size=10, color='475569')
+    ws['A3'] = '比較期間：%s  vs  %s' % (_period_label(months), _period_label(ly_months))
+    ws['A3'].font = Font(size=11, bold=True, color='0F172A')
+
+    groupby = opts.get('groupBy') or 'shop'
+    line = '分組：%s' % GROUP_LABELS.get(groupby, groupby)
+    if extra_line:
+        line += '　|　' + extra_line
+    line += '　|　' + _filter_summary(opts)
+    ws['A4'] = line
+    ws['A4'].font = Font(size=10, color='475569')
+    ws['A5'] = '產生時間：%s' % datetime.now().strftime('%Y-%m-%d %H:%M')
+    ws['A5'].font = Font(size=10, color='475569')
+
+    latest = ds.get('latestMonth', '')
+    if latest and latest[:4] == str(year) and latest in months:
+        ws['A6'] = '備註：%s 可能為不完整月份（若為進行中月份），YoY 數字請斟酌參考。' % latest
+        ws['A6'].font = Font(size=10, bold=True, color='B45309')
 
 
 def _row_metrics(g):
@@ -424,36 +571,7 @@ def build_workbook(ds, opts, report):
     FMT_PP = '+0.00" pp";-0.00" pp";0.00" pp"'
 
     # ---- 標題區 ----
-    ws['A1'] = 'Shop YoY 分析報告'
-    ws['A1'].font = Font(size=16, bold=True, color='0F172A')
-    ws['A2'] = '資料檔：%s（上載時間：%s）' % (ds.get('filename', ''), ds.get('uploadedAt', ''))
-    ws['A2'].font = Font(size=10, color='475569')
-    ws['A3'] = '比較期間：%s  vs  %s' % (_period_label(months), _period_label(ly_months))
-    ws['A3'].font = Font(size=11, bold=True, color='0F172A')
-
-    parts = []
-    parts.append('Site：%s' % ('全部' if not opts.get('siteCodes') else '%d 間' % len(opts['siteCodes'])))
-    for label, key in (('Regional', 'regional'), ('OM', 'om'), ('Class 1', 'class1'),
-                       ('Class 2', 'class2'), ('Size', 'size'), ('Type', 'type')):
-        vals = opts.get(key) or []
-        if vals:
-            parts.append('%s：%s' % (label, '、'.join(str(v) for v in vals)))
-    if opts.get('focusOnly'):
-        parts.append('只顯示需特別關注店鋪')
-    if opts.get('templateOnly'):
-        parts.append('只顯示 stores-template 內店鋪')
-    ws['A4'] = '分組：%s　|　%s' % (GROUP_LABELS.get(groupby, groupby), '；'.join(parts))
-    ws['A4'].font = Font(size=10, color='475569')
-    ws['A5'] = '產生時間：%s' % datetime.now().strftime('%Y-%m-%d %H:%M')
-    ws['A5'].font = Font(size=10, color='475569')
-
-    note = ''
-    latest = ds.get('latestMonth', '')
-    if latest and latest[:4] == str(year) and latest in months:
-        note = '備註：%s 可能為不完整月份（若為進行中月份），YoY 數字請斟酌參考。' % latest
-    if note:
-        ws['A6'] = note
-        ws['A6'].font = Font(size=10, bold=True, color='B45309')
+    _write_title_block(ws, ds, opts, months, ly_months)
 
     header_row = 8
 
@@ -606,6 +724,161 @@ def build_workbook(ds, opts, report):
     return bio
 
 
+def build_matrix_workbook(ds, opts, matrix):
+    """按月矩陣匯出：每組別一行、每個月一欄（顯示所選指標），尾加合計欄。"""
+    year = int(opts['year'])
+    lyear = year - 1
+    groupby = opts.get('groupBy') or 'shop'
+    metric = opts.get('matrixMetric') or 'salesYoy'
+    kind, metric_label = MATRIX_METRICS.get(metric, ('yoy', '淨銷售 YoY%'))
+    months = matrix['months']
+    ly_months = ['%d-%s' % (lyear, m[5:7]) for m in months]
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = 'YoY 按月'
+
+    thin = Side(style='thin', color='D9E1EC')
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    head_font = Font(bold=True, color='FFFFFF', size=11)
+    head_fill = PatternFill('solid', fgColor='0F172A')
+    total_fill = PatternFill('solid', fgColor='EEF2FF')
+    na_font = Font(color='94A3B8')
+    center = Alignment(horizontal='center', vertical='center', wrap_text=True)
+    left = Alignment(horizontal='left', vertical='center')
+    right = Alignment(horizontal='right', vertical='center')
+
+    FMT = {'yoy': '+0.0%;-0.0%;0.0%', 'pp': '+0.00" pp";-0.00" pp";0.00" pp"',
+           'money': '#,##0', 'qty': '#,##0'}
+
+    # ---- 標題區 ----
+    _write_title_block(ws, ds, opts, months, ly_months,
+                       extra_line='檢視：按月矩陣（指標：%s）' % metric_label)
+
+    h = 8  # 表頭列
+
+    if groupby == 'shop':
+        lead = [
+            ('店鋪', 'label', 26), ('Site', 'text', 9), ('店名', 'text', 18),
+            ('Regional', 'text', 9), ('OM', 'text', 9), ('Class 1', 'text', 8),
+            ('Class 2', 'text', 8), ('Size', 'text', 7), ('Type', 'text', 6), ('需關注', 'text', 7),
+        ]
+    else:
+        lead = [('分組', 'label', 24), ('店鋪數', 'qty', 9)]
+
+    ncols = len(lead) + len(months) + 1
+
+    # ---- 表頭 ----
+    for ci, (name, _k, _w) in enumerate(lead, start=1):
+        c = ws.cell(row=h, column=ci, value=name)
+        c.border = border
+        c.fill = head_fill
+        c.font = head_font
+        c.alignment = center
+    col = len(lead) + 1
+    for m in months:
+        c = ws.cell(row=h, column=col, value=m)
+        c.border = border
+        c.fill = head_fill
+        c.font = head_font
+        c.alignment = center
+        col += 1
+    c = ws.cell(row=h, column=ncols, value='合計')
+    c.border = border
+    c.fill = head_fill
+    c.font = head_font
+    c.alignment = center
+
+    # 欄寬
+    for ci, (_n, _k, w) in enumerate(lead, start=1):
+        ws.column_dimensions[get_column_letter(ci)].width = w
+    for ci in range(len(lead) + 1, ncols + 1):
+        ws.column_dimensions[get_column_letter(ci)].width = 11
+
+    # ---- 儲存格寫入 ----
+    def write_lead(rr, g, bold=False, fill=None):
+        if groupby == 'shop':
+            vals = [
+                (g['label'], 'label'), (g['code'], 'text'), (g['name'], 'text'),
+                (g['regional'], 'text'), (g['om'], 'text'), (g['class1'], 'text'),
+                (g['class2'], 'text'), (g['size'], 'text'), (g['type'], 'text'),
+                ('Y' if g.get('focus') else '', 'text'),
+            ]
+        else:
+            vals = [(g['label'], 'label'), (g['n'], 'qty')]
+        for ci, (v, k) in enumerate(vals, start=1):
+            c = ws.cell(row=rr, column=ci)
+            c.border = border
+            if fill:
+                c.fill = fill
+            if k == 'qty':
+                c.value = v if v is not None else ''
+                c.number_format = FMT['qty']
+                c.alignment = right
+                c.font = Font(bold=bold)
+            else:
+                c.value = v if v is not None else ''
+                c.alignment = left if k == 'label' else center
+                c.font = Font(bold=bold)
+
+    def write_cell(rr, ci, cur, ly, bold=False, fill=None):
+        c = ws.cell(row=rr, column=ci)
+        c.border = border
+        c.alignment = right
+        if fill:
+            c.fill = fill
+        v = _matrix_value(cur, ly, metric)
+        if v is None:
+            c.value = '—'
+            c.font = na_font
+            c.alignment = center
+            return
+        c.value = float(v)
+        c.number_format = FMT[kind]
+        if kind in ('yoy', 'pp'):
+            if v > 1e-9:
+                c.font = Font(bold=bold, color='047857')
+            elif v < -1e-9:
+                c.font = Font(bold=bold, color='B91C1C')
+            else:
+                c.font = Font(bold=bold)
+        else:
+            c.font = Font(bold=bold)
+
+    r = h + 1
+
+    # 總計列
+    tot = matrix['totals']
+    tot_g = {'label': '總計', 'n': matrix.get('siteCount', ''),
+             'code': '', 'name': '', 'regional': '', 'om': '', 'class1': '',
+             'class2': '', 'size': '', 'type': '', 'focus': False}
+    write_lead(r, tot_g, bold=True, fill=total_fill)
+    col = len(lead) + 1
+    for m in months:
+        write_cell(r, col, tot['cells'][m], tot['cellsLy'][m], bold=True, fill=total_fill)
+        col += 1
+    write_cell(r, col, tot['aggCur'], tot['aggLy'], bold=True, fill=total_fill)
+    r += 1
+
+    for g in matrix['groups']:
+        write_lead(r, g)
+        col = len(lead) + 1
+        for m in months:
+            write_cell(r, col, g['cells'][m], g['cellsLy'][m])
+            col += 1
+        write_cell(r, col, g['aggCur'], g['aggLy'])
+        r += 1
+
+    last_row = r - 1
+    ws.auto_filter.ref = 'A%d:%s%d' % (h, get_column_letter(ncols), last_row)
+    ws.freeze_panes = 'B%d' % (h + 1)
+
+    bio = io.BytesIO()
+    wb.save(bio)
+    bio.seek(0)
+    return bio
+
+
 # ---------------------------------------------------------------------------
 # 路由
 # ---------------------------------------------------------------------------
@@ -654,6 +927,26 @@ def api_report(token):
         return jsonify({'ok': False, 'error': '資料已過期，請重新上載 Excel。'}), 404
     opts = request.get_json(silent=True) or {}
     try:
+        if (opts.get('view') or 'agg') == 'matrix':
+            mx = compute_matrix(ds, opts)
+            r2 = lambda arr: [round(x, 2) for x in arr]
+            groups = [{
+                'label': g['label'], 'n': g['n'],
+                'cells': {m: r2(g['cells'][m]) for m in mx['months']},
+                'ly': {m: r2(g['cellsLy'][m]) for m in mx['months']},
+                'agg': {'cur': r2(g['aggCur']), 'ly': r2(g['aggLy'])},
+            } for g in mx['groups']]
+            tot = mx['totals']
+            return jsonify({
+                'ok': True, 'view': 'matrix', 'months': mx['months'], 'groups': groups,
+                'totals': {
+                    'cells': {m: r2(tot['cells'][m]) for m in mx['months']},
+                    'ly': {m: r2(tot['cellsLy'][m]) for m in mx['months']},
+                    'agg': {'cur': r2(tot['aggCur']), 'ly': r2(tot['aggLy'])},
+                },
+                'siteCount': mx['siteCount'],
+            })
+
         rep = compute_report(ds, opts)
     except Exception as e:  # noqa: BLE001
         return jsonify({'ok': False, 'error': '計算失敗：%s' % e}), 400
@@ -685,8 +978,12 @@ def api_export(token):
     if not opts.get('year') or not opts.get('months'):
         return jsonify({'ok': False, 'error': '請先選擇年份及至少一個月份。'}), 400
     try:
-        rep = compute_report(ds, opts)
-        bio = build_workbook(ds, opts, rep)
+        if (opts.get('view') or 'agg') == 'matrix':
+            mx = compute_matrix(ds, opts)
+            bio = build_matrix_workbook(ds, opts, mx)
+        else:
+            rep = compute_report(ds, opts)
+            bio = build_workbook(ds, opts, rep)
     except Exception as e:  # noqa: BLE001
         app.logger.exception('export error')
         return jsonify({'ok': False, 'error': '產生 Excel 時發生錯誤：%s' % e}), 500

@@ -8,6 +8,7 @@
 - 上載 `Hugo_by Shop_YoY_*.xlsx`（拖放或點擊選擇）
 - 自動對照 `stores-template.csv`，為每間店補上 Regional／Class 1／Class 2／Size／OM／Type／需特別關注 等屬性
 - 篩選：**Site**（可搜尋、多選）、**年份**、**月份**（單月 = 單月 YoY；多月 = 累計 YoY，例如 1–9 月 YTD）
+- 檢視模式：**累計**（合併所選月份）或 **按月矩陣**（每店一行、每月一欄顯示該月 YoY%，可切換指標：淨銷售／銷量／GP$／GP%／數值，尾加「合計」欄）
 - 進階篩選：Regional／OM／Class 1／Class 2／Size／Type、只顯示需特別關注店鋪、只顯示模板內店鋪
 - 分組檢視：店鋪／Regional／OM／Class 1／Class 2／Size／Type（連分組匯總 YoY）
 - 指標：淨銷售、銷量、毛利 GP$ 的 YoY%，以及毛利率變化（± pp）
@@ -67,7 +68,8 @@ git push -u origin main
 1. 開啟網址 → 上載最新匯出的 `Hugo_by Shop_YoY_*.xlsx`
 2. 系統自動列出可選的年份／月份／店鋪，預設：最新年份、全部月份、全部店鋪
 3. 選擇篩選條件 → 即時看到 YoY 結果
-4. 按「⬇ 下載 Excel」匯出目前篩選結果
+4. 想逐月睇就將「檢視」切換成「按月矩陣」，可用「指標」下拉選擇顯示咩數字
+5. 按「⬇ 下載 Excel」匯出目前篩選結果（累計或按月矩陣都會照畫面匯出）
 
 ## 資料注意事項
 
