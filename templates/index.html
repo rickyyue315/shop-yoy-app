@@ -237,6 +237,7 @@
         </select>
         <select id="metricSel" class="hidden" title="矩陣顯示指標">
           <option value="all">全部指標（同步顯示）</option>
+          <option value="allv">全部指標＋值（同步顯示）</option>
           <option value="salesYoy">淨銷售 YoY%</option>
           <option value="qtyYoy">銷量 YoY%</option>
           <option value="gpYoy">毛利 GP$ YoY%</option>
@@ -244,6 +245,7 @@
           <option value="salesVal">淨銷售（值）</option>
           <option value="qtyVal">銷量（值）</option>
           <option value="gpVal">毛利 GP$（值）</option>
+          <option value="gpPctVal">毛利率（值）</option>
         </select>
       </div>
       <div class="frow">
@@ -465,8 +467,21 @@ function compute() {
 }
 
 /* ---- 按月矩陣 ---- */
-const METRIC_KIND = { salesYoy: 'yoy', qtyYoy: 'yoy', gpYoy: 'yoy', gpPp: 'pp', salesVal: 'money', qtyVal: 'qty', gpVal: 'money' };
+const METRIC_KIND = { salesYoy: 'yoy', qtyYoy: 'yoy', gpYoy: 'yoy', gpPp: 'pp', salesVal: 'money', qtyVal: 'qty', gpVal: 'money', gpPctVal: 'pct' };
 const MATRIX_ALL = [['salesYoy', '淨銷售 YoY%'], ['qtyYoy', '銷量 YoY%'], ['gpYoy', '毛利 GP$ YoY%'], ['gpPp', '毛利率 ±pp']];
+const MATRIX_ALLV = [
+  ['salesVal', '淨銷售（值）'], ['salesYoy', '淨銷售 YoY%'],
+  ['qtyVal', '銷量（值）'], ['qtyYoy', '銷量 YoY%'],
+  ['gpVal', '毛利 GP$（值）'], ['gpYoy', '毛利 GP$ YoY%'],
+  ['gpPctVal', '毛利率（值）'], ['gpPp', '毛利率 ±pp']
+];
+
+function matrixSections() {
+  const m = state.matrixMetric;
+  if (m === 'all') return MATRIX_ALL;
+  if (m === 'allv') return MATRIX_ALLV;
+  return [[m, '']];
+}
 
 function cellMetric(cur, lyv, metric) {
   if (!cur) cur = [0, 0, 0];
@@ -483,6 +498,7 @@ function cellMetric(cur, lyv, metric) {
     case 'salesVal': return cur[1];
     case 'qtyVal': return cur[0];
     case 'gpVal': return cur[2];
+    case 'gpPctVal': return cur[1] ? cur[2] / cur[1] : null;
   }
   return null;
 }
@@ -490,7 +506,7 @@ function cellMetric(cur, lyv, metric) {
 function cellTip(cur, lyv, metric) {
   if (!cur) cur = [0, 0, 0];
   if (!lyv) lyv = [0, 0, 0];
-  if (metric === 'gpPp') {
+  if (metric === 'gpPp' || metric === 'gpPctVal') {
     const pc = cur[1] ? cur[2] / cur[1] : null, pl = lyv[1] ? lyv[2] / lyv[1] : null;
     return `本期毛利率 ${pc !== null ? (pc * 100).toFixed(2) + '%' : '—'}／去年 ${pl !== null ? (pl * 100).toFixed(2) + '%' : '—'}`;
   }
@@ -541,7 +557,7 @@ function computeMatrix() {
   const sk = (sk0 === 'label' || sk0 === 'total' || sk0.startsWith('m:')) ? sk0 : 'total';
   const dir = state.sortDir === 'asc' ? 1 : -1;
   // 「全部指標」模式排序用「本期淨銷售」（合計）
-  const metricForSort = state.matrixMetric === 'all' ? 'salesVal' : state.matrixMetric;
+  const metricForSort = (state.matrixMetric === 'all' || state.matrixMetric === 'allv') ? 'salesVal' : state.matrixMetric;
   const valOf = g => {
     if (sk === 'total') return cellMetric(g.aggCur, g.aggLy, metricForSort);
     if (sk.startsWith('m:')) {
@@ -655,15 +671,19 @@ function matrixCellHTML(cur, lyv, metric, extra) {
     const cls = d > 0.005 ? ' pos' : (d < -0.005 ? ' neg' : '');
     return `<td class="num${cls}${ex}" title="${esc(tip)}">${d > 0 ? '+' : ''}${d.toFixed(2)} pp</td>`;
   }
+  if (kind === 'pct') {
+    return `<td class="num${ex}" title="${esc(tip)}">${(v * 100).toFixed(2)}%</td>`;
+  }
   return `<td class="num${ex}" title="${esc(tip)}">${fmtInt(v)}</td>`;
 }
 
 function renderMatrix(mx) {
-  const isAll = state.matrixMetric === 'all';
+  const sections = matrixSections();
+  const multi = sections.length > 1;
   const isShop = state.groupBy === 'shop';
   const labelName = isShop ? '店鋪' : '分組';
 
-  if (!isAll) {
+  if (!multi) {
     let head = `<tr><th class="sticky-col sortable" data-sort="label">${labelName}${ind('label')}</th>`;
     for (const m of mx.selMs) {
       const key = 'm:' + m;
@@ -674,7 +694,7 @@ function renderMatrix(mx) {
   } else {
     let r1 = `<tr><th class="sticky-col sortable" rowspan="2" data-sort="label">${labelName}${ind('label')}</th>`;
     let r2 = '<tr>';
-    for (const [mk, mlabel] of MATRIX_ALL) {
+    for (const [_mk, mlabel] of sections) {
       r1 += `<th class="mgroup sec" colspan="${mx.selMs.length + 1}">${mlabel}</th>`;
       mx.selMs.forEach((m, i) => {
         r2 += `<th class="num${i === 0 ? ' sec' : ''}" title="${m}（vs ${state.year - 1}${m.slice(4)}）">${m.slice(5)}</th>`;
@@ -687,11 +707,10 @@ function renderMatrix(mx) {
 
   // 一列的所有指標區塊（每區塊 = 各月 + 合計）
   const cellsFor = g => {
-    const metrics = isAll ? MATRIX_ALL.map(x => x[0]) : [state.matrixMetric];
     let html = '';
-    for (const metric of metrics) {
+    for (const [metric] of sections) {
       mx.selMs.forEach((m, i) => {
-        html += matrixCellHTML(g.cells[m], g.cellsLy[m], metric, (isAll && i === 0) ? ' sec' : '');
+        html += matrixCellHTML(g.cells[m], g.cellsLy[m], metric, (multi && i === 0) ? ' sec' : '');
       });
       html += matrixCellHTML(g.aggCur, g.aggLy, metric, '');
     }
@@ -700,7 +719,7 @@ function renderMatrix(mx) {
 
   let html = '';
   if (!mx.list.length) {
-    const ncols = isAll ? mx.selMs.length * MATRIX_ALL.length + MATRIX_ALL.length + 1 : mx.selMs.length + 2;
+    const ncols = multi ? mx.selMs.length * sections.length + sections.length + 1 : mx.selMs.length + 2;
     html = `<tr><td class="empty" colspan="${ncols}">沒有符合條件的資料</td></tr>`;
   } else {
     const totG = { cells: {}, cellsLy: {}, aggCur: mx.ta.cur, aggLy: mx.ta.ly };
@@ -974,7 +993,7 @@ $('#viewSel').addEventListener('change', e => {
 });
 $('#metricSel').addEventListener('change', e => {
   state.matrixMetric = e.target.value;
-  if (state.matrixMetric === 'all' && state.sortKey.startsWith('m:')) {
+  if ((state.matrixMetric === 'all' || state.matrixMetric === 'allv') && state.sortKey.startsWith('m:')) {
     state.sortKey = 'total'; state.sortDir = 'desc';
   }
   render();

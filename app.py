@@ -87,6 +87,7 @@ MATRIX_METRICS = {
     'salesVal': ('money', '淨銷售'),
     'qtyVal': ('qty', '銷量'),
     'gpVal': ('money', '毛利 GP$'),
+    'gpPctVal': ('pct', '毛利率（值）'),
 }
 
 
@@ -499,6 +500,8 @@ def _matrix_value(cur, ly, metric):
         return cur[0]
     if metric == 'gpVal':
         return cur[2]
+    if metric == 'gpPctVal':
+        return (cur[2] / cur[1]) if cur[1] else None
     # 預設：淨銷售 YoY%
     return ((cur[1] - ly[1]) / ly[1]) if ly[1] > 0 else None
 
@@ -756,6 +759,12 @@ def build_matrix_workbook(ds, opts, matrix):
         sections = [('salesYoy', '淨銷售 YoY%'), ('qtyYoy', '銷量 YoY%'),
                     ('gpYoy', '毛利 GP$ YoY%'), ('gpPp', '毛利率 ±pp')]
         metric_label = '全部指標（同步顯示）'
+    elif metric == 'allv':
+        sections = [('salesVal', '淨銷售（值）'), ('salesYoy', '淨銷售 YoY%'),
+                    ('qtyVal', '銷量（值）'), ('qtyYoy', '銷量 YoY%'),
+                    ('gpVal', '毛利 GP$（值）'), ('gpYoy', '毛利 GP$ YoY%'),
+                    ('gpPctVal', '毛利率（值）'), ('gpPp', '毛利率 ±pp')]
+        metric_label = '全部指標＋值（同步顯示）'
     else:
         _k, _label = MATRIX_METRICS.get(metric, ('yoy', '淨銷售 YoY%'))
         sections = [(metric, _label)]
@@ -781,7 +790,7 @@ def build_matrix_workbook(ds, opts, matrix):
     right = Alignment(horizontal='right', vertical='center')
 
     FMT = {'yoy': '+0.0%;-0.0%;0.0%', 'pp': '+0.00" pp";-0.00" pp";0.00" pp"',
-           'money': '#,##0', 'qty': '#,##0'}
+           'money': '#,##0', 'qty': '#,##0', 'pct': '0.00%'}
 
     # ---- 標題區 ----
     _write_title_block(ws, ds, opts, months, ly_months,
