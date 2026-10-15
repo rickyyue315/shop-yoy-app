@@ -37,6 +37,8 @@
   .btn.primary:disabled { opacity: .6; cursor: default; }
   .btn.ghost { background: transparent; color: #fff; border-color: #475569; }
   .btn.ghost:hover { background: #1e293b; }
+  .btn.danger { border-color: #7f1d1d; color: #fecaca; }
+  .btn.danger:hover { background: #450a0a; }
 
   main { max-width: 1520px; margin: 0 auto; padding: 20px; }
 
@@ -180,6 +182,7 @@
   <div class="nav-right">
     <span id="navStatus" class="nav-status hidden"></span>
     <button id="btnReload" class="btn ghost hidden">重新上載</button>
+    <button id="btnClear" class="btn ghost danger hidden">清除資料</button>
   </div>
 </nav>
 
@@ -199,6 +202,7 @@
         <li>上載後可選擇 Site、年份、月份（及 Regional／OM 等進階篩選）</li>
         <li>自動對照內置 stores-template 店鋪主檔，計算同期 YoY%</li>
         <li>可將篩選結果下載成 Excel 報告</li>
+        <li>資料只存於伺服器記憶體、逾時自動刪除，亦可隨時按「清除資料」</li>
       </ul>
     </div>
   </section>
@@ -309,7 +313,7 @@
         </table>
       </div>
     </div>
-    <p class="foot">資料只存放於本次服務的記憶體中；重新上載或服務重啟後需再次上載。</p>
+    <p class="foot" id="footNote">資料只存放於本次服務的記憶體中；重新上載或服務重啟後需再次上載。</p>
   </section>
 </main>
 
@@ -319,7 +323,7 @@ const $ = s => document.querySelector(s);
 const ATTRS = ['regional', 'om', 'class1', 'class2', 'size', 'type'];
 const ATTR_CHIP_ID = { regional: 'chipsRegional', om: 'chipsOM', class1: 'chipsClass1', class2: 'chipsClass2', size: 'chipsSize', type: 'chipsType' };
 
-let DS = null, TOKEN = null;
+let DS = null, TOKEN = null, TTL = 0;
 
 const state = {
   year: null, months: new Set(), sites: new Set(),
@@ -809,8 +813,12 @@ function initDashboard(ds, token) {
   $('#navStatus').textContent = `已載入：${ds.filename} · 上載時間 ${ds.uploadedAt} · ${ds.sites.length} 間店 · ${ds.months.length} 個月`;
   $('#navStatus').classList.remove('hidden');
   $('#btnReload').classList.remove('hidden');
+  $('#btnClear').classList.remove('hidden');
   $('#uploadView').classList.add('hidden');
   $('#dashView').classList.remove('hidden');
+  $('#footNote').textContent = TTL > 0
+    ? `資料只存放於伺服器的記憶體中，上載後 ${TTL} 小時自動刪除；亦可隨時按「清除資料」。`
+    : '資料只存放於本次服務的記憶體中；重新上載或服務重啟後需再次上載。';
 
   buildMonthChips();
   buildAttrChips();
@@ -838,6 +846,7 @@ async function doUpload(file) {
     const res = await fetch('/api/upload', { method: 'POST', body: fd });
     const j = await res.json().catch(() => ({}));
     if (!res.ok || !j.ok) throw new Error(j.error || ('HTTP ' + res.status));
+    TTL = j.ttlHours || 0;
     initDashboard(j.dataset, j.token);
   } catch (e) {
     showError('上載失敗：' + e.message);
@@ -901,6 +910,18 @@ $('#dropzone').addEventListener('drop', e => {
 });
 $('#fileInput').addEventListener('change', e => { if (e.target.files.length) doUpload(e.target.files[0]); e.target.value = ''; });
 $('#btnReload').addEventListener('click', () => $('#fileInput').click());
+$('#btnClear').addEventListener('click', async () => {
+  if (!confirm('確定要清除所有已上載的資料嗎？\n資料會即時由伺服器記憶體刪除，無法復原。')) return;
+  try { await fetch('/api/clear-all', { method: 'POST' }); } catch (e) { /* 即使失敗都返回上載畫面 */ }
+  DS = null; TOKEN = null; TTL = 0;
+  $('#dashView').classList.add('hidden');
+  $('#uploadView').classList.remove('hidden');
+  $('#navStatus').classList.add('hidden');
+  $('#btnReload').classList.add('hidden');
+  $('#btnClear').classList.add('hidden');
+  $('#uploadError').classList.add('hidden');
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+});
 
 $('#yearSel').addEventListener('change', e => { state.year = +e.target.value; resetSort(); buildMonthChips(); render(); });
 $('#groupSel').addEventListener('change', e => { state.groupBy = e.target.value; resetSort(); render(); });

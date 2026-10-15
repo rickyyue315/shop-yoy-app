@@ -20,13 +20,14 @@ import io
 import os
 import re
 import threading
+import time
 import uuid
 from datetime import date, datetime
 
 import openpyxl
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
-from flask import Flask, jsonify, render_template, request, send_file
+from flask import Flask, Response, jsonify, render_template, request, send_file
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 TEMPLATE_CSV = os.path.join(BASE_DIR, 'stores-template.csv')
@@ -36,9 +37,19 @@ MONTH_RE = re.compile(r'^(\d{4})-(0[1-9]|1[0-2])$')
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 32 * 1024 * 1024  # 上載上限 32 MB
 
-# 已上載資料（記憶體暫存；token -> dataset），保留最近數份
+# 私隱設定（可用環境變數覆寫）：
+#   APP_PASSWORD    設定後，開啟網站需輸入密碼（用戶名稱隨意，密碼 = 此值）
+#   DATA_TTL_HOURS  上載資料於記憶體保留幾多小時後自動刪除（預設 8；0 = 不自動過期）
+APP_PASSWORD = (os.environ.get('APP_PASSWORD') or '').strip()
+try:
+    DATA_TTL_HOURS = float(os.environ.get('DATA_TTL_HOURS', '8'))
+except ValueError:
+    DATA_TTL_HOURS = 8.0
+
+# 已上載資料（只存記憶體，不寫入硬碟／資料庫），保留最近數份
 _DATASETS = {}
 _DATASET_ORDER = []
+_TIMES = {}
 _DATASETS_MAX = 5
 _LOCK = threading.Lock()
 
@@ -894,6 +905,33 @@ def build_matrix_workbook(ds, opts, matrix):
 # 路由
 # ---------------------------------------------------------------------------
 
+def _get_dataset(token):
+    """取出未過期的 dataset；已過期即由記憶體刪除。"""
+    ds = _DATASETS.get(token)
+    if ds is None:
+        return None
+    if DATA_TTL_HOURS > 0 and time.time() - _TIMES.get(token, 0) > DATA_TTL_HOURS * 3600:
+        with _LOCK:
+            _DATASETS.pop(token, None)
+            _TIMES.pop(token, None)
+            if token in _DATASET_ORDER:
+                _DATASET_ORDER.remove(token)
+        return None
+    return ds
+
+
+@app.before_request
+def _require_auth():
+    """若設定了 APP_PASSWORD，所有請求（除 /healthz）需先通過 Basic Auth。"""
+    if not APP_PASSWORD or request.path == '/healthz':
+        return None
+    auth = request.authorization
+    if not auth or auth.password != APP_PASSWORD:
+        return Response('需要登入：請輸入存取密碼（用戶名稱隨意）', 401,
+                        {'WWW-Authenticate': 'Basic realm="Shop YoY"'})
+    return None
+
+
 @app.get('/')
 def index():
     return render_template('index.html')
@@ -923,17 +961,50 @@ def api_upload():
     ds['filename'] = fn
     ds['uploadedAt'] = datetime.now().strftime('%Y-%m-%d %H:%M')
     token = uuid.uuid4().hex
+    now = time.time()
     with _LOCK:
+        # 先清走過期資料，再存入新資料（最多保留 _DATASETS_MAX 份）
+        if DATA_TTL_HOURS > 0:
+            cutoff = now - DATA_TTL_HOURS * 3600
+            for t in [x for x in _DATASET_ORDER if _TIMES.get(x, 0) < cutoff]:
+                _DATASET_ORDER.remove(t)
+                _DATASETS.pop(t, None)
+                _TIMES.pop(t, None)
         _DATASETS[token] = ds
+        _TIMES[token] = now
         _DATASET_ORDER.append(token)
         while len(_DATASET_ORDER) > _DATASETS_MAX:
-            _DATASETS.pop(_DATASET_ORDER.pop(0), None)
-    return jsonify({'ok': True, 'token': token, 'dataset': ds})
+            old = _DATASET_ORDER.pop(0)
+            _DATASETS.pop(old, None)
+            _TIMES.pop(old, None)
+    ds.pop('_ts', None)
+    return jsonify({'ok': True, 'token': token, 'dataset': ds, 'ttlHours': DATA_TTL_HOURS})
+
+
+@app.post('/api/clear-all')
+def api_clear_all():
+    """即時清除所有已上載資料（由記憶體刪除）。"""
+    with _LOCK:
+        _DATASETS.clear()
+        _DATASET_ORDER.clear()
+        _TIMES.clear()
+    return jsonify({'ok': True})
+
+
+@app.post('/api/clear/<token>')
+def api_clear(token):
+    """即時清除指定的一份已上載資料。"""
+    with _LOCK:
+        _DATASETS.pop(token, None)
+        _TIMES.pop(token, None)
+        if token in _DATASET_ORDER:
+            _DATASET_ORDER.remove(token)
+    return jsonify({'ok': True})
 
 
 @app.post('/api/report/<token>')
 def api_report(token):
-    ds = _DATASETS.get(token)
+    ds = _get_dataset(token)
     if ds is None:
         return jsonify({'ok': False, 'error': '資料已過期，請重新上載 Excel。'}), 404
     opts = request.get_json(silent=True) or {}
@@ -982,7 +1053,7 @@ def api_report(token):
 
 @app.post('/api/export/<token>')
 def api_export(token):
-    ds = _DATASETS.get(token)
+    ds = _get_dataset(token)
     if ds is None:
         return jsonify({'ok': False, 'error': '資料已過期，請重新上載 Excel。'}), 404
     opts = request.get_json(silent=True) or {}
