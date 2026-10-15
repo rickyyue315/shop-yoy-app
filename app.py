@@ -44,6 +44,7 @@ MONTH_RE = re.compile(r'^(\d{4})-(0[1-9]|1[0-2])$')
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 32 * 1024 * 1024  # 上載上限 32 MB
+app.config['TEMPLATES_AUTO_RELOAD'] = True
 
 # 私隱設定（可用環境變數覆寫）：
 #   APP_PASSWORD    設定後，開啟網站需輸入密碼（用戶名稱隨意，密碼 = 此值）
