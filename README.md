@@ -69,9 +69,15 @@ git push
 
 - 新帳戶有 **30 日 US$5 試用額度**（免信用卡）
 - 之後可選 **Free**（每月 US$1 用量額度；每服務上限 1 vCPU / 0.5 GB RAM）或 **Hobby**（US$5/月，含 US$5 用量）——明細大檔（15 萬行級）建議 Hobby
-- 停止嘅服務唔收費；詳情以 [railway.com/pricing](https://railway.com/pricing) 為準
+- 詳情以 [railway.com/pricing](https://railway.com/pricing) 為準
 
-### 4. 更新
+### 4. 暫停服務（偶爾使用慳錢）
+
+- **自動瞓覺（推薦）**：服務 → **Settings → Deploy → Serverless** → 開啟。冇人用約 5–10 分鐘即自動停止計費，有人開網址自動喚醒（冷啟動數秒，首次開或需重新整理一次）。設定於**下次部署**先生效。注意：瞓覺後容器記憶體會清空——**已上載資料要重新上載**
+- **完全停止**：服務 → **Deployments** → 最新 deployment 嘅 **⋮ → Remove**，即時停止計費；之後喺 dashboard 按 **Deploy** 或 push 任何 commit 即可重新啟動（環境變數及設定保留）
+- **防超支保險**：Workspace → Usage 設定 **Hard limit**（最低 US$10），達到上限會自動停低服務
+
+### 5. 更新
 
 - **更新店鋪主檔**：修改 `stores-template.csv` → push 到 GitHub → Railway 自動重新部署
 - **更新「精簡SKU店舖」名單**：修改 `app.py` 最上方的 `LEAN_SKU_SITES` 清單 → push
