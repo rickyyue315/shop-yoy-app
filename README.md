@@ -1,7 +1,7 @@
 # Shop YoY 分析系統
 
 讀取 **Hugo_by Shop_YoY** 匯出的 Excel，配合內置 **stores-template**（店鋪主檔），
-按 **Site／年份／月份** 篩選計算 **YoY%**，並可匯出 Excel 報告。專為 Zeabur 部署而設。
+按 **Site／年份／月份** 篩選計算 **YoY%**，並可匯出 Excel 報告。以標準 Docker 封裝，可直接部署到 Railway 等雲端平台。
 
 ## 功能
 
@@ -30,7 +30,7 @@ shop-yoy-app/
 ├── templates/index.html   # 前端介面（單頁，免編譯）
 ├── stores-template.csv    # 內置店鋪主檔（定期更新）
 ├── requirements.txt
-└── Dockerfile             # Zeabur 部署用
+└── Dockerfile             # Docker 部署用（Railway 等）
 ```
 
 ## 本機執行（測試用）
@@ -42,32 +42,38 @@ python app.py
 # 開啟 http://127.0.0.1:5000
 ```
 
-## 部署到 Zeabur
+## 部署到 Railway
 
 ### 1. 推送到 GitHub
 
 ```bash
 cd shop-yoy-app
-git init
 git add .
-git commit -m "Shop YoY 分析系統"
-git branch -M main
-git remote add origin https://github.com/<你的帳號>/<repo>.git
-git push -u origin main
+git commit -m "更新"
+git push
 ```
 
-### 2. Zeabur 建立服務
+（如未設定 remote：`git remote add origin https://github.com/<你的帳號>/<repo>.git`，再 `git push -u origin main`。）
 
-1. 登入 [Zeabur](https://zeabur.com) → **Create Project**（選一個地區，建議 Hong Kong 或鄰近地區）
-2. **Add Service → Git**（或 GitHub）→ 選擇你的 repo
-3. Zeabur 偵測到 `Dockerfile` 會自動以 Docker 建置，毋須其他設定
-4. 服務啟動後，於 **Networking → Generate Domain** 產生公開網址，即可使用
+### 2. Railway 建立服務
 
-> 服務會讀取 `PORT` 環境變數（Zeabur 自動提供，預設 8080），毋須手動設定。
+1. 以 GitHub 帳號登入 [Railway](https://railway.com) → **New Project → Deploy from GitHub repo** → 選擇你的 repo（首次需授權 Railway 讀取 GitHub）
+2. Railway 偵測到 `Dockerfile` 會自動以 Docker 建置，毋須任何設定
+3. 建議於服務 **Settings → Regions** 揀 **Southeast Asia (Singapore)**（最近香港）
+4. 服務啟動後，於 **Settings → Networking → Public Networking → Generate Domain** 產生公開網址（`*.up.railway.app`）；Railway 會自動偵測 app 監聽嘅 port，毋須手動設定
+5. （可選）於 **Settings → Deploy** 將 **Healthcheck Path** 設為 `/healthz`（app 已內置此端點）
 
-### 3. 更新
+> 服務會讀取 `PORT` 環境變數（預設 8080）；Railway 亦會自動偵測 app 監聽嘅 port，毋須手動設定。
 
-- **更新店鋪主檔**：修改 `stores-template.csv` → push 到 GitHub → Zeabur 自動重新部署
+### 3. 收費
+
+- 新帳戶有 **30 日 US$5 試用額度**（免信用卡）
+- 之後可選 **Free**（每月 US$1 用量額度；每服務上限 1 vCPU / 0.5 GB RAM）或 **Hobby**（US$5/月，含 US$5 用量）——明細大檔（15 萬行級）建議 Hobby
+- 停止嘅服務唔收費；詳情以 [railway.com/pricing](https://railway.com/pricing) 為準
+
+### 4. 更新
+
+- **更新店鋪主檔**：修改 `stores-template.csv` → push 到 GitHub → Railway 自動重新部署
 - **更新「精簡SKU店舖」名單**：修改 `app.py` 最上方的 `LEAN_SKU_SITES` 清單 → push
 - **更新程式**：push 到 GitHub 即自動重新部署
 
@@ -97,9 +103,9 @@ git push -u origin main
 | `APP_PASSWORD` | （未設定） | 設定後，開啟網站需先輸入密碼（瀏覽器彈出登入框：用戶名稱隨意，密碼填此值）。公開部署建議設定 |
 | `DATA_TTL_HOURS` | `8` | 上載資料於記憶體保留時數，逾時自動刪除；`0` = 不自動過期 |
 
-在 Zeabur 設定：服務頁面 → **Environment Variables** → 新增，儲存後會自動重新部署。
+在 Railway 設定：服務頁面 → **Variables** → 新增，儲存後會自動重新部署。
 
-> 如果完全唔想有公開網址：唔好為服務產生 Public Domain（服務就只存在於 Zeabur 內部網絡）；或改為只在本機執行 `python app.py`（只有自己電腦用得到，不會曝露上網）。
+> 如果完全唔想有公開網址：唔好按 **Generate Domain**（服務就只存在於 Railway 內部網絡）；或改為只在本機執行 `python app.py`（只有自己電腦用得到，不會曝露上網）。
 
 ## 效能
 
@@ -115,7 +121,7 @@ git push -u origin main
 | 提示「找不到資料表」 | 確認上載的是 Hugo_by Shop_YoY 匯出檔（需有 Month、Shop、Net Sales 欄） |
 | 提示「資料已過期」 | 服務曾重啟、逾時（預設 8 小時）或已按「清除資料」，重新上載 Excel 即可 |
 | 想即時刪除數據 | 按右上角「清除資料」；或等自動逾期刪除 |
-| 想加密碼先入得 | 在 Zeabur 設定環境變數 `APP_PASSWORD` |
+| 想加密碼先入得 | 在 Railway 設定環境變數 `APP_PASSWORD`（服務 → Variables） |
 | 去年同月顯示「—」 | 所選月份的去年同期沒有資料（例如 2026 年只有 1–10 月） |
 | 上載時進度條好似停住 | 會自動重試（顯示「連線不穩或服務正在更新，重試中（n/6）」）；如重試後仍失敗，多數係服務正在重新部署或有數據未上載完，重新上載即可 |
 | 月末數字偏低 | 當月為進行中月份，系統會顯示黃色提示 |

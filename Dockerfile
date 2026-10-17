@@ -1,4 +1,4 @@
-# Shop YoY 分析系統 — Zeabur / Docker 部署
+# Shop YoY 分析系統 — Docker 部署（Railway 等雲端平台）
 FROM python:3.12-slim
 
 WORKDIR /app

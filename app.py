@@ -5,7 +5,7 @@ Shop YoY 分析系統
 
 用法：
     python app.py                     # 本機執行（預設 http://127.0.0.1:5000）
-    PORT=8080 gunicorn app:app        # 生產環境（Docker / Zeabur）
+    PORT=8080 gunicorn app:app        # 生產環境（Docker / Railway 等）
 
 功能：
     1. 上載 Hugo_by Shop_YoY 匯出的 Excel
