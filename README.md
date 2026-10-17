@@ -69,6 +69,7 @@ git push
 
 - 新帳戶有 **30 日 US$5 試用額度**（免信用卡）
 - 之後可選 **Free**（每月 US$1 用量額度；每服務上限 1 vCPU / 0.5 GB RAM）或 **Hobby**（US$5/月，含 US$5 用量）——明細大檔（15 萬行級）建議 Hobby
+- **預算參考**（已開 Serverless）：間中使用嘅內部工具，實際用量估計約 **US$0.1–1/月**（成本主要係清醒期間嘅記憶體；CPU 同流量近乎唔計）——Hobby 用量唔過 US$5 就實收 **US$5/月**；Free 嘅 US$1 額度通常都夠，但每服務 0.5 GB RAM 上限，15 萬行級明細檔可能唔夠
 - 詳情以 [railway.com/pricing](https://railway.com/pricing) 為準
 
 ### 4. 暫停服務（偶爾使用慳錢）
