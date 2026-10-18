@@ -665,8 +665,66 @@ def _row_groups(ds, prep, groups, row, si):
     return out
 
 
-def _sort_hierarchy(out):
-    """把組別排成階層次序（每層按本期淨銷售 desc；用 g['cur']）。"""
+# 累計模式可用的排序鍵（與前端 index.html 的 METRIC_DEFS / metricsOf 一一對應）
+_AGG_SORT_KEYS = ('label', 'curSales', 'yoySales', 'curQty', 'yoyQty',
+                  'curGp', 'yoyGp', 'curGpPct', 'dGpPct')
+
+
+def _sort_opts(opts, allowed, default):
+    """讀出前端傳來的排序設定；不認識的鍵一律退回預設，避免舊版前端出錯。"""
+    key = str(opts.get('sortKey') or default)
+    if key not in allowed:
+        key = default
+    desc = str(opts.get('sortDir') or 'desc') != 'asc'
+    return key, desc
+
+
+def _agg_sort_value(g, key):
+    """對應前端 metricsOf()：回傳排序用的數值，無法計算 = None。"""
+    q, s, p = g['cur']
+    ql, sl, pl = g['ly']
+    if key == 'curSales':
+        return s
+    if key == 'curQty':
+        return q
+    if key == 'curGp':
+        return p
+    if key == 'yoySales':
+        return ((s - sl) / sl) if (sl and sl > 0) else None
+    if key == 'yoyQty':
+        return ((q - ql) / ql) if (ql and ql > 0) else None
+    if key == 'yoyGp':
+        return ((p - pl) / pl) if (pl and pl > 0) else None
+    if key == 'curGpPct':
+        return (p / s) if s else None
+    if key == 'dGpPct':
+        pc = (p / s) if s else None
+        plr = (pl / sl) if sl else None
+        return (pc - plr) if (pc is not None and plr is not None) else None
+    return s  # 未識別的鍵：沿用「本期淨銷售」
+
+
+def _sorted_groups(items, value_of, desc, by_label=False):
+    """與畫面一致的排序規則。
+
+    - by_label：直接按 label 排（前端 sortKey='label'）
+    - 數值無法計算（None）一律排最後，不論 asc / desc —— 與前端 makeComparator 相同
+    - 同值時以 label 排，確保匯出結果穩定可重現
+    """
+    if by_label or value_of is None:
+        return sorted(items, key=lambda g: g['label'], reverse=desc)
+
+    def sk(g):
+        v = value_of(g)
+        if v is None:
+            return (1, 0.0, g['label'])
+        return (0, -v if desc else v, g['label'])
+
+    return sorted(items, key=sk)
+
+
+def _sort_hierarchy(out, value_of=None, desc=True, by_label=False):
+    """把組別排成階層次序（每層各自排序，再 depth-first 展開）。"""
     children = {}
     roots = []
     for g in out:
@@ -674,18 +732,17 @@ def _sort_hierarchy(out):
             roots.append(g)
         else:
             children.setdefault(tuple(g['key'][:-1]), []).append(g)
-    roots.sort(key=lambda g: (-g['cur'][1], g['label']))
+
     result = []
 
     def emit(g):
         result.append(g)
         kids = children.get(tuple(g['key']))
         if kids:
-            kids.sort(key=lambda x: (-x['cur'][1], x['label']))
-            for k in kids:
+            for k in _sorted_groups(kids, value_of, desc, by_label):
                 emit(k)
 
-    for r in roots:
+    for r in _sorted_groups(roots, value_of, desc, by_label):
         emit(r)
     return result
 
@@ -732,10 +789,15 @@ def compute_report(ds, opts):
         if hide_empty and not any(g['cur']) and not any(g['ly']):
             continue
         out.append(g)
+
+    # 跟隨畫面的排序（前端 collectOpts 會傳 sortKey / sortDir）
+    sort_key, sort_desc = _sort_opts(opts, _AGG_SORT_KEYS, 'curSales')
+    by_label = sort_key == 'label'
+    value_of = None if by_label else (lambda g: _agg_sort_value(g, sort_key))
     if site_mode:
-        out.sort(key=lambda g: (-g['cur'][1], g['label']))
+        out = _sorted_groups(out, value_of, sort_desc, by_label)
     else:
-        out = _sort_hierarchy(out)
+        out = _sort_hierarchy(out, value_of, sort_desc, by_label)
 
     totals = {'cur': [0.0, 0.0, 0.0], 'ly': [0.0, 0.0, 0.0]}
     for g in out:
@@ -746,6 +808,20 @@ def compute_report(ds, opts):
             totals['ly'][j] += g['ly'][j]
 
     return {'groups': out, 'totals': totals, 'siteCount': prep['pass_count']}
+
+
+def _matrix_sort_value(g, key, metric, months):
+    """矩陣模式的排序值：'total' = 所選月份合計，'m:YYYY-MM' = 單月。"""
+    if key == 'total':
+        return _matrix_value(g['aggCur'], g['aggLy'], metric)
+    if key.startswith('m:'):
+        m = key[2:]
+        if m not in months:
+            return None
+        cells = g.get('cells') or {}
+        cells_ly = g.get('cellsLy') or {}
+        return _matrix_value(cells.get(m) or [0, 0, 0], cells_ly.get(m) or [0, 0, 0], metric)
+    return None
 
 
 def compute_matrix(ds, opts):
@@ -805,12 +881,19 @@ def compute_matrix(ds, opts):
         if hide_empty and not any(g['aggCur']) and not any(g['aggLy']):
             continue
         out.append(g)
+
+    # 跟隨畫面的排序：'total' = 合計欄，'m:YYYY-MM' = 某一月欄
+    allowed = ('label', 'total') + tuple('m:' + m for m in months)
+    sort_key, sort_desc = _sort_opts(opts, allowed, 'total')
+    mmetric = str(opts.get('matrixMetric') or 'salesYoy')
+    if mmetric in ('all', 'allv'):
+        mmetric = 'salesVal'
+    by_label = sort_key == 'label'
+    value_of = None if by_label else (lambda g: _matrix_sort_value(g, sort_key, mmetric, months))
     if site_mode:
-        out.sort(key=lambda g: (-g['aggCur'][1], g['label']))
+        out = _sorted_groups(out, value_of, sort_desc, by_label)
     else:
-        for g in out:  # _sort_hierarchy 用 cur 排序
-            g['cur'] = g['aggCur']
-        out = _sort_hierarchy(out)
+        out = _sort_hierarchy(out, value_of, sort_desc, by_label)
 
     totals = {
         'cells': {m: [0.0, 0.0, 0.0] for m in months},
@@ -1515,16 +1598,6 @@ def api_progress(task_id):
             headers['Vary'] = 'Accept-Encoding'
             return Response(gz, 200, headers)
     return Response(payload, 200, headers)
-
-
-@app.post('/api/clear-all')
-def api_clear_all():
-    """即時清除所有已上載資料（由記憶體刪除）。"""
-    with _LOCK:
-        _DATASETS.clear()
-        _DATASET_ORDER.clear()
-        _TIMES.clear()
-    return jsonify({'ok': True})
 
 
 @app.post('/api/clear/<token>')

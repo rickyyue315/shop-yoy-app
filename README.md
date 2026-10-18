@@ -16,7 +16,7 @@
 - 進階篩選：Regional／OM／Class 1／Class 2／Size／Type、只顯示需特別關注店鋪、**只顯示精簡SKU店舖**（18 間：HA19、HA21、HA33、HA37、HB30、HC44、HB86、HB77、HB91、HB94、HC26、HC60、HC62、HC68、HC13、HC69、HB87、HB80）、只顯示模板內店鋪
 - 分組檢視：店鋪／Regional／OM／Class 1／Class 2／Size／Type（連分組匯總 YoY）
 - 指標：淨銷售、銷量、毛利 GP$ 的 YoY%，以及毛利率變化（± pp）
-- 一鍵下載 Excel 報告（格式與畫面一致，附自動篩選、凍結窗格）
+- 一鍵下載 Excel 報告（**排序、篩選與畫面一致**，附自動篩選、凍結窗格）
 - 上載大檔案時顯示**實時解析進度（%）**（背景解析、可邊睇邊等）
 - **上載抗斷線**：進度輪詢有 30 秒逾時及自動重試（畫面會顯示「重試中（n/6）」），短暫斷線或服務重新部署都唔會再卡死
 - **私隱保護**：資料只存伺服器記憶體、逾時自動刪除（預設 8 小時）、可隨時一鍵「清除資料」、可選密碼保護
@@ -29,7 +29,9 @@ shop-yoy-app/
 ├── app.py                 # Flask 後端（解析 Excel、計算 YoY、產生匯出檔）
 ├── templates/index.html   # 前端介面（單頁，免編譯）
 ├── stores-template.csv    # 內置店鋪主檔（定期更新）
+├── tests/                 # 回歸測試（計算、排序、匯出、解析）
 ├── requirements.txt       # 套件版本已固定，確保每次重建成一樣
+├── requirements-dev.txt   # 只供本機測試用（pytest），不會裝進 Docker
 ├── Dockerfile             # Docker 部署用（Railway 等）
 ├── .dockerignore          # 建置時排除非必要檔案（加快建置）
 └── .gitignore             # 防止資料檔／快取被 push 上 GitHub
@@ -43,6 +45,17 @@ pip install -r requirements.txt
 python app.py
 # 開啟 http://127.0.0.1:5000
 ```
+
+## 執行測試
+
+```bash
+pip install -r requirements-dev.txt
+python -m pytest tests -q
+```
+
+測試鎖住的是**計算口徑**：YoY 公式、篩選、`hideEmpty`、以及「匯出排序 = 畫面排序」。
+前端 `compute()` 與後端 `compute_report()` 是同一套邏輯的兩份實作，改任何一邊都要同步更新
+`tests/test_report.py` 的期望值——這也是目前架構最容易出錯的地方。
 
 ## 部署到 Railway
 
@@ -109,7 +122,7 @@ git push
 - **上載的資料只存於服務「記憶體」（RAM），不會寫入硬碟或資料庫；服務重啟即消失**
 - **其他人開啟同一網址只會見到上載畫面，無法看到你的數據**（數據以隨機 token 存取，只有上載嗰個瀏覽器持有）
 - 未手動清除的資料會於上載後 **8 小時自動刪除**（可用環境變數 `DATA_TTL_HOURS` 調整；`0` = 不自動過期）
-- 可隨時按畫面右上角「**清除資料**」即時刪除所有已上載資料
+- 可隨時按畫面右上角「**清除資料**」即時刪除**自己這一份**已上載資料（不會影響其他人的）
 - 金額及銷量維持來源數據；畫面整數顯示，匯出檔保留完整數值
 
 ## 私隱與安全（環境變數）

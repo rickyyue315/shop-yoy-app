@@ -1,0 +1,2 @@
+# 只供本機開發／CI 測試使用，不裝進 Docker 映像（Dockerfile 只讀 requirements.txt）
+pytest==9.1.1

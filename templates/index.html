@@ -1872,6 +1872,7 @@ function collectOpts() {
     class2: [...state.class2], size: [...state.size], type: [...state.type],
     focusOnly: state.focusOnly, templateOnly: state.templateOnly, leanSkuOnly: state.leanSkuOnly,
     hideEmpty: state.hideEmpty,
+    sortKey: state.sortKey, sortDir: state.sortDir,
     groupBys: [...state.groupBys], view: state.view, matrixMetric: state.matrixMetric
   };
 }
@@ -1918,8 +1919,9 @@ $('#dropzone').addEventListener('drop', e => {
 $('#fileInput').addEventListener('change', e => { if (e.target.files.length) doUpload(e.target.files[0]); e.target.value = ''; });
 $('#btnReload').addEventListener('click', () => $('#fileInput').click());
 $('#btnClear').addEventListener('click', async () => {
-  if (!confirm('確定要清除所有已上載的資料嗎？\n資料會即時由伺服器記憶體刪除，無法復原。')) return;
-  try { await fetch('/api/clear-all', { method: 'POST' }); } catch (e) { /* 即使失敗都返回上載畫面 */ }
+  if (!confirm('確定要清除已上載的資料嗎？\n資料會即時由伺服器記憶體刪除，無法復原。')) return;
+  // 只清自己這一份（token）；不可用全域清除，否則會誤刪其他人的資料
+  try { if (TOKEN) await fetch('/api/clear/' + TOKEN, { method: 'POST' }); } catch (e) { /* 即使失敗都返回上載畫面 */ }
   DS = null; TOKEN = null; TTL = 0;
   $('#dashView').classList.add('hidden');
   $('#uploadView').classList.remove('hidden');
