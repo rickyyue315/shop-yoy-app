@@ -1,9 +1,13 @@
 __pycache__/
 *.pyc
-.git/
-.gitignore
 .venv/
 venv/
+env/
+.git/
+.gitignore
 *.xlsx
 *.xlsm
+*.log
+.DS_Store
+Thumbs.db
 README.md

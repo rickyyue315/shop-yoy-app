@@ -29,8 +29,10 @@ shop-yoy-app/
 ├── app.py                 # Flask 後端（解析 Excel、計算 YoY、產生匯出檔）
 ├── templates/index.html   # 前端介面（單頁，免編譯）
 ├── stores-template.csv    # 內置店鋪主檔（定期更新）
-├── requirements.txt
-└── Dockerfile             # Docker 部署用（Railway 等）
+├── requirements.txt       # 套件版本已固定，確保每次重建成一樣
+├── Dockerfile             # Docker 部署用（Railway 等）
+├── .dockerignore          # 建置時排除非必要檔案（加快建置）
+└── .gitignore             # 防止資料檔／快取被 push 上 GitHub
 ```
 
 ## 本機執行（測試用）
@@ -58,23 +60,29 @@ git push
 ### 2. Railway 建立服務
 
 1. 以 GitHub 帳號登入 [Railway](https://railway.com) → **New Project → Deploy from GitHub repo** → 選擇你的 repo（首次需授權 Railway 讀取 GitHub）
-2. Railway 偵測到 `Dockerfile` 會自動以 Docker 建置，毋須任何設定
-3. 建議於服務 **Settings → Regions** 揀 **Southeast Asia (Singapore)**（最近香港）
-4. 服務啟動後，於 **Settings → Networking → Public Networking → Generate Domain** 產生公開網址（`*.up.railway.app`）；Railway 會自動偵測 app 監聽嘅 port，毋須手動設定
-5. （可選）於 **Settings → Deploy** 將 **Healthcheck Path** 設為 `/healthz`（app 已內置此端點）
+2. Railway 偵測到 `Dockerfile` 會自動以 Docker 建置（Metal builder，設有層快取：之後只改程式碼唔會重新安裝套件，重新部署快好多），毋須任何設定
+3. 如 repo 根目錄唔係 app 本身（例如 repo 內再包一層 `shop-yoy-app/` 資料夾）：**Settings → Source → Root Directory** 填 `shop-yoy-app`
+4. **Settings → Regions** 揀 **Southeast Asia (Singapore)**（最近香港）
+5. **Settings → Deploy → Healthcheck Path** 填 `/healthz`（app 已內置此端點；部署時 Railway 會確認新版本健康先切換流量，做到零停機更新）
+6. 服務啟動後，於 **Settings → Networking → Public Networking → Generate Domain** 產生公開網址（`*.up.railway.app`）
+7. ⚠️ **Replicas 必須保持 1**（Free 計劃固定係 1；Hobby 亦唔好加）——已上載資料只存喺**單一實例**嘅記憶體，開多個實例會出現「一時有資料、一時話過期」嘅情況
+8. **Settings → Deploy → Replica Limits**：CPU **1 vCPU**、Memory **1–2 GB** 已好夠——上限只係「安全網」，按**實際用量**計費，設高啲唔會預先加錢；但設得太低（例如 0.5 GB），大檔解析或大矩陣匯出時會爆記憶體遭強制重啟（資料清空）
 
-> 服務會讀取 `PORT` 環境變數（預設 8080）；Railway 亦會自動偵測 app 監聽嘅 port，毋須手動設定。
+> 服務會讀取 Railway 自動注入嘅 `PORT` 環境變數（Dockerfile 預設 8080），毋須手動設定。
 
 ### 3. 收費
 
-- 新帳戶有 **30 日 US$5 試用額度**（免信用卡）
-- 之後可選 **Free**（每月 US$1 用量額度；每服務上限 1 vCPU / 0.5 GB RAM）或 **Hobby**（US$5/月，含 US$5 用量）——明細大檔（15 萬行級）建議 Hobby
-- **預算參考**（已開 Serverless）：間中使用嘅內部工具，實際用量估計約 **US$0.1–1/月**（成本主要係清醒期間嘅記憶體；CPU 同流量近乎唔計）——Hobby 用量唔過 US$5 就實收 **US$5/月**；Free 嘅 US$1 額度通常都夠，但每服務 0.5 GB RAM 上限，15 萬行級明細檔可能唔夠
+- 新帳戶有 **30 日 US$5 試用額度**（免信用卡；試用期每服務上限 2 vCPU / 1 GB）
+- 之後可選：
+  - **Free**：US$0/月，每月 US$1 用量額度；每服務上限 **1 vCPU / 0.5 GB RAM、1 replica**，日誌保留 3 日——明細大檔（15 萬行級）或一次過保留多份資料時，記憶體可能唔夠
+  - **Hobby**：US$5/月（含 US$5 用量）；每服務上限 **48 vCPU / 48 GB、6 replicas**——明細大檔建議用呢個（但 **replicas 保持 1**）
+- 用量**按秒計**：記憶體 **US$10/GB/月**、CPU **US$20/vCPU/月**、對外流量 **US$0.05/GB**；瞓覺期間唔計費
+- **預算參考**（已開 Serverless）：間中使用嘅內部工具，實際用量估計約 **US$0.1–1/月**（成本主要係清醒期間嘅記憶體；CPU 同流量近乎唔計）——Hobby 用量唔過 US$5 就實收 **US$5/月**；Free 嘅 US$1 額度處理細檔一般都夠
 - 詳情以 [railway.com/pricing](https://railway.com/pricing) 為準
 
 ### 4. 暫停服務（偶爾使用慳錢）
 
-- **自動瞓覺（推薦）**：服務 → **Settings → Deploy → Serverless** → 開啟。冇人用約 5–10 分鐘即自動停止計費，有人開網址自動喚醒（冷啟動數秒，首次開或需重新整理一次）。設定於**下次部署**先生效。注意：瞓覺後容器記憶體會清空——**已上載資料要重新上載**
+- **自動瞓覺（推薦）**：服務 → **Settings → Deploy → Serverless** → 開啟。最後一次對外通訊後 5–10 分鐘自動停止計費，有人開網址自動喚醒（冷啟動幾秒至十幾秒；瞓覺期間嘅請求會**自動排隊**，等容器起身後照常處理，一般唔使手動整理）。設定於**下次部署**先生效。注意：瞓覺後容器記憶體會清空——**已上載資料要重新上載**
 - **完全停止**：服務 → **Deployments** → 最新 deployment 嘅 **⋮ → Remove**，即時停止計費；之後喺 dashboard 按 **Deploy** 或 push 任何 commit 即可重新啟動（環境變數及設定保留）
 - **防超支保險**：Workspace → Usage 設定 **Hard limit**（最低 US$10），達到上限會自動停低服務
 
@@ -82,7 +90,8 @@ git push
 
 - **更新店鋪主檔**：修改 `stores-template.csv` → push 到 GitHub → Railway 自動重新部署
 - **更新「精簡SKU店舖」名單**：修改 `app.py` 最上方的 `LEAN_SKU_SITES` 清單 → push
-- **更新程式**：push 到 GitHub 即自動重新部署
+- **更新程式**：push 到 GitHub 即自動重新部署（層快取關係，唔改 `requirements.txt` 就唔會重新安裝套件）
+- **部署設定**：本 app **唔使用** `railway.toml`／`railway.json`——Railway 將於 2026-12-01 停用 Config-as-code，所有設定（Region／Healthcheck／Serverless／Variables／Replicas）一律喺 dashboard 做
 
 ## 使用流程
 
@@ -120,15 +129,19 @@ git push
 - 實測速度：店鋪級檔（約 2 千行）< 0.1 秒；明細檔 39k 行約 **0.5 秒**；155k 行（4 個月）約 **2 秒**
 - 如環境未安裝 python-calamine，會自動退回 openpyxl（功能相同、較慢）
 - 萬一 calamine 讀唔到某檔案，亦會自動嘗試 openpyxl，唔會失敗
+- **Railway 相關**：Docker 層快取（唔改 `requirements.txt` 就唔會重裝套件）；容器設 `MALLOC_ARENA_MAX=2` 減少記憶體碎片；大數據輪詢／載入自動 gzip（省對外流量 US$0.05/GB）
+- 記憶體提示：已上載資料保留喺 RAM（最多 5 份、預設 8 小時後自動刪除）。如處理大檔或想即時釋放記憶體，按右上角「清除資料」
 
 ## 常見問題
 
 | 情況 | 處理 |
 | --- | --- |
 | 提示「找不到資料表」 | 確認上載的是 Hugo_by Shop_YoY 匯出檔（需有 Month、Shop、Net Sales 欄） |
-| 提示「資料已過期」 | 服務曾重啟、逾時（預設 8 小時）或已按「清除資料」，重新上載 Excel 即可 |
+| 提示「資料已過期」 | 服務曾重啟、瞓覺被喚醒（記憶體清空）、逾時（預設 8 小時）或已按「清除資料」，重新上載 Excel 即可 |
 | 想即時刪除數據 | 按右上角「清除資料」；或等自動逾期刪除 |
 | 想加密碼先入得 | 在 Railway 設定環境變數 `APP_PASSWORD`（服務 → Variables） |
 | 去年同月顯示「—」 | 所選月份的去年同期沒有資料（例如 2026 年只有 1–10 月） |
 | 上載時進度條好似停住 | 會自動重試（顯示「連線不穩或服務正在更新，重試中（n/6）」）；如重試後仍失敗，多數係服務正在重新部署或有數據未上載完，重新上載即可 |
+| 開網址第一次好慢（或逾時） | 服務正由「瞓覺」喚醒中——瞓覺期間嘅請求會自動排隊，通常等幾秒就會照常處理；如逾時或見到錯誤，重新整理一次即可 |
+| Railway 建置失敗（pip 連線中斷） | Dockerfile 已內置自動重試（最多 3 次）；若仍失敗，多數係 PyPI 短暫問題——過幾分鐘於 dashboard 按 **Deploy** 重試即可 |
 | 月末數字偏低 | 當月為進行中月份，系統會顯示黃色提示 |

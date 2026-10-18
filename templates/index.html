@@ -1758,7 +1758,7 @@ function initDashboard(ds, token) {
   $('#uploadView').classList.add('hidden');
   $('#dashView').classList.remove('hidden');
   $('#footNote').textContent = TTL > 0
-    ? `資料只存放於伺服器的記憶體中，上載後 ${TTL} 小時自動刪除；亦可隨時按「清除資料」。`
+    ? `資料只存放於伺服器記憶體（服務瞓覺／重新部署會即時清空），上載後最多 ${TTL} 小時自動刪除；亦可隨時按「清除資料」。`
     : '資料只存放於本次服務的記憶體中；重新上載或服務重啟後需再次上載。';
 
   buildMonthChips();
