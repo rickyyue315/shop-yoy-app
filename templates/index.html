@@ -528,7 +528,7 @@
     border-radius: 12px;
   }
 
-  /* 店鋪 / 分組 multi-select */
+  /* 店舖 / 分組 multi-select */
   .ms { position: relative; }
   .ms-btn {
     font-family: inherit;
@@ -710,7 +710,7 @@
   .badge.neg { background: var(--down-bg); color: var(--down); border-color: var(--down-border); }
   .badge.flat { background: #f1f5f9; color: var(--muted); border-color: var(--line); }
 
-  /* ---------- 數據表格 ---------- */
+  /* ---------- 資料表格 ---------- */
   .table-head {
     display: flex;
     align-items: center;
@@ -894,8 +894,8 @@
   <section id="uploadView">
     <div class="upload-card">
       <div class="upload-hero">
-        <h1>店鋪同期銷售分析 (YoY)</h1>
-        <p>即時對照店鋪主檔、支援多維度交叉分析與按月矩陣報表匯出</p>
+        <h1>店舖同期銷售分析 (YoY)</h1>
+        <p>即時對照店舖主檔、支援多維度交叉分析與按月矩陣報表匯出</p>
       </div>
       <div id="dropzone" class="dropzone">
         <div class="dz-icon" aria-hidden="true">
@@ -916,8 +916,8 @@
       <div id="uploadError" class="alert hidden"></div>
       <ul class="tips">
         <li>上載後可按 Site、年份、月份，以及 Regional／OM／品牌等維度最多 3 層分組分析</li>
-        <li>自動對照內置 stores-template 店鋪主檔，計算淨銷售、銷量、GP$ 及毛利率同期 YoY</li>
-        <li>支援「累計」與「按月矩陣」雙模式檢視，一鍵匯出排版完整的 Excel 報告</li>
+        <li>自動對照內置 stores-template 店舖主檔，計算淨銷售、銷量、GP$ 及毛利率同期 YoY</li>
+        <li>支援「累計」與「按月矩陣」雙模式檢視，一按即可匯出排版完整的 Excel 報告</li>
         <li>資料只存於伺服器記憶體、逾時自動刪除，亦可隨時按右上角「清除資料」</li>
       </ul>
     </div>
@@ -936,10 +936,10 @@
         <span class="sep"></span>
         <label>分組</label>
         <div class="ms" id="groupMS">
-          <button id="btnGroup" class="ms-btn">分組：店鋪 ▾</button>
+          <button id="btnGroup" class="ms-btn">分組：店舖 ▾</button>
           <div id="groupPanel" class="ms-panel hidden">
             <div class="ms-actions">
-              <span class="muted">可揀多層（最多 3 層；選擇次序 = 嵌套層級）</span>
+              <span class="muted">可揀多層（最多 3 層；選擇次序 = 層級次序）</span>
               <a id="btnGroupReset">重設</a>
             </div>
             <div id="groupList" class="ms-list"></div>
@@ -965,9 +965,9 @@
         </select>
       </div>
       <div class="frow">
-        <label>店鋪</label>
+        <label>店舖</label>
         <div class="ms" id="siteMS">
-          <button id="btnSite" class="ms-btn">全部店鋪 ▾</button>
+          <button id="btnSite" class="ms-btn">全部店舖 ▾</button>
           <div id="sitePanel" class="ms-panel hidden">
             <input id="siteSearch" class="ms-search" placeholder="搜尋 Site／店名…">
             <div class="ms-actions">
@@ -980,7 +980,7 @@
         <span id="siteSummary" class="muted"></span>
       </div>
       <details class="adv">
-        <summary>進階篩選（Regional／OM／店類等）<span id="advBadge" class="adv-badge hidden"></span></summary>
+        <summary>進階篩選（Regional／OM／店舖類別等）<span id="advBadge" class="adv-badge hidden"></span></summary>
         <div class="adv-body">
           <div class="frow"><label>Regional</label><div id="chipsRegional" class="chips"></div>
             <span class="sep"></span><label>OM</label><div id="chipsOM" class="chips"></div></div>
@@ -989,10 +989,10 @@
           <div class="frow"><label>Size</label><div id="chipsSize" class="chips"></div>
             <span class="sep"></span><label>Type</label><div id="chipsType" class="chips"></div></div>
           <div class="frow"><label>其他</label>
-            <label class="chk"><input type="checkbox" id="chkFocus"> 只顯示「需特別關注」店鋪</label>
+            <label class="chk"><input type="checkbox" id="chkFocus"> 只顯示「需特別關注」店舖</label>
             <label class="chk"><input type="checkbox" id="chkLeanSku"> 只顯示「精簡SKU店舖」</label>
-            <label class="chk"><input type="checkbox" id="chkTemplate"> 只顯示 stores-template 內店鋪</label>
-            <label class="chk"><input type="checkbox" id="chkHideEmpty" checked> 隱藏無數據店鋪</label>
+            <label class="chk"><input type="checkbox" id="chkTemplate"> 只顯示 stores-template 內店舖</label>
+            <label class="chk"><input type="checkbox" id="chkHideEmpty" checked> 隱藏無資料店舖</label>
             <span class="mini" style="margin-left:auto"><a id="btnAdvReset">重設進階篩選</a></span>
           </div>
         </div>
@@ -1078,7 +1078,7 @@ const ATTR_CHIP_ID = { regional: 'chipsRegional', om: 'chipsOM', class1: 'chipsC
 const TEMPLATE_GROUPINGS = ['shop', 'regional', 'om', 'class1', 'class2', 'size', 'type'];
 const DIM_ORDER = ['brand', 'mch1', 'mch2', 'mc', 'nature', 'postal', 'buyer', 'sst', 'status', 'customer', 'promoid1', 'promoid2'];
 const GROUP_LABEL_JS = {
-  shop: '店鋪', regional: 'Regional', om: 'OM', class1: 'Class 1', class2: 'Class 2', size: 'Size', type: 'Type',
+  shop: '店舖', regional: 'Regional', om: 'OM', class1: 'Class 1', class2: 'Class 2', size: 'Size', type: 'Type',
   brand: '品牌 Brand', mch1: '大分類 MCH1', mch2: '中分類 MCH2', mc: '品類 MC',
   nature: '客群 Nature', postal: '客源 Postal', buyer: '買手 Buyer', sst: 'SST',
   status: '貨品狀態 Status', customer: '客戶類型 Customer',
@@ -1631,10 +1631,10 @@ function render() {
 
   if (state.view === 'matrix') {
     const mx = computeMatrix();
-    $('#tableMeta').textContent = `· 按月矩陣 · 分組：${levelsLabel()} · ${mx.list.length} 行 · 共 ${mx.siteCount} 間店鋪`;
+    $('#tableMeta').textContent = `· 按月矩陣 · 分組：${levelsLabel()} · ${mx.list.length} 行 · 共 ${mx.siteCount} 間店舖`;
     renderMatrix(mx);
   } else {
-    $('#tableMeta').textContent = `· 分組：${levelsLabel()} · ${rep.list.length} 行 · 共 ${rep.siteCount} 間店鋪`;
+    $('#tableMeta').textContent = `· 分組：${levelsLabel()} · ${rep.list.length} 行 · 共 ${rep.siteCount} 間店舖`;
     renderTable(rep);
   }
 }
@@ -1643,7 +1643,7 @@ function render() {
 function updateSiteBtn() {
   const total = DS.sites.length, sel = state.sites.size;
   const btn = $('#btnSite');
-  btn.textContent = (sel === total ? `全部店鋪（${total}） ` : (sel === 0 ? '未選擇店鋪 ' : `已選 ${sel}／${total} 店鋪 `)) + '▾';
+  btn.textContent = (sel === total ? `全部店舖（${total}） ` : (sel === 0 ? '未選擇店舖 ' : `已選 ${sel}／${total} 店舖 `)) + '▾';
   $('#siteSummary').textContent = sel === total ? `全部（${total}）` : `已選 ${sel}／${total}`;
   $('#siteCount').textContent = `已選 ${sel}／${total}`;
 }
@@ -1673,7 +1673,7 @@ function renderSites(filterText) {
       <span class="ms-code">${esc(s.code)}</span><span class="ms-name">${esc(s.name || '')}${warn}${lean}</span>
       <span class="ms-meta">${esc(meta)}</span></label>`;
   }).join('');
-  $('#siteList').innerHTML = html || '<div class="ms-none muted">沒有符合的店鋪</div>';
+  $('#siteList').innerHTML = html || '<div class="ms-none muted">沒有符合的店舖</div>';
 }
 
 function buildMonthChips() {
@@ -1728,7 +1728,7 @@ function initDashboard(ds, token) {
   state.focusOnly = false; state.templateOnly = false; state.leanSkuOnly = false; state.hideEmpty = true;
   state.groupBys = ['shop']; state.sortKey = 'curSales'; state.sortDir = 'desc';
   state.view = 'agg'; state.matrixMetric = 'salesYoy';
-  // 分組選項：主檔屬性 +（明細檔）檔案分析維度；預設保持「店鋪」
+  // 分組選項：主檔屬性 +（明細檔）檔案分析維度；預設保持「店舖」
   const groupOpts = TEMPLATE_GROUPINGS.map(k => [k, GROUP_LABEL_JS[k] || k]);
   if (ds.kind === 'rich' && ds.dims) {
     for (const k of DIM_ORDER) {
@@ -1774,7 +1774,7 @@ let UPLOADING = false;
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-/** fetch 加逾時（AbortController）：避免請求永久掛起，令畫面好似「當機」。 */
+/** fetch 加逾時（AbortController）：避免請求永久卡住，令畫面好似「死機」。 */
 async function fetchTimeout(url, opts, ms) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), ms);
@@ -1809,7 +1809,7 @@ async function pollUploadProgress(taskID) {
       res = await fetchTimeout('/api/progress/' + taskID, {}, 30000);
       j = await res.json().catch(() => ({}));
       if (res.ok && j.ok) {
-        if (j.status === 'done') { setProgress(100, '正在載入數據…'); return j; }
+        if (j.status === 'done') { setProgress(100, '正在載入資料…'); return j; }
         if (j.status === 'error') { const e = new Error(j.error || '解析失敗'); e.fatal = true; throw e; }
         fails = 0; lastErr = null;
         pct = j.pct || 0;
@@ -1945,7 +1945,7 @@ $('#groupList').addEventListener('change', e => {
   } else if (idx >= 0) {
     state.groupBys.splice(idx, 1);
   }
-  if (!state.groupBys.length) state.groupBys = ['shop'];  // 唔可以一個都冇，還原為店鋪
+  if (!state.groupBys.length) state.groupBys = ['shop'];  // 唔可以一個都冇，還原為店舖
   resetSort();
   renderGroupList(); updateGroupBtn(); render();
 });

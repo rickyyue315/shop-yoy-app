@@ -37,7 +37,7 @@ def test_parse_shop_level_file():
     assert ds['sites'][0]['code'] == 'ZZ99'
     assert ds['sites'][0]['name'] == '測試店'
 
-    # rows = [月份索引, 店鋪索引, 銷量, 淨銷售, 毛利]
+    # rows = [月份索引, 店舖索引, 銷量, 淨銷售, 毛利]
     first = ds['rows'][0]
     assert first[0] == 0 and first[1] == 0
     assert first[2:] == [10, 80.0, 32.0]

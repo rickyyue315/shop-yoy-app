@@ -21,7 +21,7 @@ SITES = [
          class2='X', size='L', type='T1', focus=True, inTemplate=True, leanSku=False),
     dict(code='HA03', name='C 店', regional='R2', om='O2', class1='C2',
          class2='Y', size='S', type='T2', focus=False, inTemplate=False, leanSku=True),
-    # 完全沒有資料的店鋪：用於驗證 hideEmpty
+    # 完全沒有資料的店舖：用於驗證 hideEmpty
     dict(code='HA04', name='D 店', regional='R2', om='O2', class1='C2',
          class2='Y', size='S', type='T2', focus=False, inTemplate=False, leanSku=False),
 ]
@@ -65,7 +65,7 @@ def labels(result):
 
 
 def exported_codes(bio):
-    """由匯出檔的資料列，按出現次序取出店鋪代碼。"""
+    """由匯出檔的資料列，按出現次序取出店舖代碼。"""
     wb = load_workbook(io.BytesIO(bio.getvalue()))
     out = []
     for row in wb.active.iter_rows(values_only=True):

@@ -10,7 +10,7 @@ Shop YoY 分析系統
 功能：
     1. 上載 Hugo_by Shop_YoY 匯出的 Excel
        （欄位：Month / Shop / Sold Qty / Net Sales / COGS / GP$ / GP%）
-    2. 自動對照內置 stores-template.csv（店鋪主檔），補上 Regional / Class / Size / OM / Type 等屬性
+    2. 自動對照內置 stores-template.csv（店舖主檔），補上 Regional / Class / Size / OM / Type 等屬性
     3. 依 Site、年份、月份（單月或多月累計）計算 YoY%，支援 Regional / OM 等進階篩選及分組
     4. 匯出 Excel 報告
 """
@@ -84,7 +84,7 @@ GROUP_FIELDS = {
     'type': 'type',
 }
 GROUP_LABELS = {
-    'shop': '店鋪',
+    'shop': '店舖',
     'regional': 'Regional',
     'om': 'OM',
     'class1': 'Class 1',
@@ -106,7 +106,7 @@ GROUP_LABELS = {
     'promoid2': '推廣 PromoID2',
 }
 
-# 精簡 SKU 店鋪（進階篩選快速選用；如日後名單有變，改呢個清單即可）
+# 精簡 SKU 店舖（進階篩選快速選用；如日後名單有變，改呢個清單即可）
 LEAN_SKU_SITES = {
     'HA19', 'HA21', 'HA33', 'HA37', 'HB30', 'HC44', 'HB86', 'HB77', 'HB91',
     'HB94', 'HC26', 'HC60', 'HC62', 'HC68', 'HC13', 'HC69', 'HB87', 'HB80',
@@ -184,7 +184,7 @@ def _period_label(months):
 
 
 def load_template():
-    """讀取內置店鋪主檔 stores-template.csv（每次上載時重新讀取）。"""
+    """讀取內置店舖主檔 stores-template.csv（每次上載時重新讀取）。"""
     tpl = {}
     if not os.path.exists(TEMPLATE_CSV):
         return tpl
@@ -337,7 +337,7 @@ def parse_excel(data, progress=None):
     解析 Excel（bytes），回傳 dataset。自動偵測兩種格式：
 
     1. Hugo_by Shop_YoY（Month / Shop / …）→ kind='shop'
-       rows = [月份, 店鋪, 銷量, 淨銷售, 毛利]
+       rows = [月份, 店舖, 銷量, 淨銷售, 毛利]
     2. Hugo_all_YoY（含 Brand / MCH1 / MCH2 / MC / Nature / Postal 等維度）→ kind='rich'
        rows 末端追加各分析維度索引；可用維度見 ds['dims']
 
@@ -352,7 +352,7 @@ def parse_excel(data, progress=None):
                 pass
 
     cb(1, '讀取檔案…')
-    cb(3, '載入數據…')
+    cb(3, '載入資料…')
     found = _find_header_reader(data)
     if found is None:
         raise ValueError(
@@ -437,11 +437,11 @@ def parse_excel(data, progress=None):
         if not agg:
             raise ValueError('找不到有效的資料列（Month 欄位需為 YYYY-MM 格式）。')
 
-        cb(95, '對照店鋪主檔…')
+        cb(95, '對照店舖主檔…')
         months = sorted(months_set)
         m_idx = {m: i for i, m in enumerate(months)}
 
-        # 對照店鋪主檔
+        # 對照店舖主檔
         tpl = load_template()
         sites = []
         s_idx = {}
@@ -475,7 +475,7 @@ def parse_excel(data, progress=None):
                 dims[k] = {'values': vals, 'pos': pos, 'idx': {v: i for i, v in enumerate(vals)}}
                 pos += 1
 
-        cb(97, '整理數據…')
+        cb(97, '整理資料…')
         # 預先整理維度索引（避免逐行查 dict）
         pickers = []
         if rich:
@@ -498,7 +498,7 @@ def parse_excel(data, progress=None):
             rows.append(r)
             if n_keys > 100000 and i % step == 0:
                 cb(97 + 1.5 * i / n_keys,
-                   '整理數據… %s / %s' % (format(i, ','), format(n_keys, ',')))
+                   '整理資料… %s / %s' % (format(i, ','), format(n_keys, ',')))
         rows.sort(key=lambda r: (r[0], r[1]))
 
         years = {}
@@ -545,15 +545,15 @@ def _resolve_levels(ds, opts):
 
 
 def _prepare(ds, opts):
-    """建立店鋪篩選結果及分組容器。
+    """建立店舖篩選結果及分組容器。
 
     回傳 dict：
       levels      分組層級清單（最多 3 層）
-      site_mode   True = 單層主檔屬性／店鋪（沿用預先建立組別的模式）
+      site_mode   True = 單層主檔屬性／店舖（沿用預先建立組別的模式）
       groups      組別容器（site_mode 預先建立；否則由 row 逐個建立）
       site_group  site index -> group key（只限 site_mode）
       pass_set    通過篩選的 site index 集合
-      pass_count  通過篩選的店鋪數
+      pass_count  通過篩選的店舖數
     """
     sites = ds['sites']
     levels = _resolve_levels(ds, opts)
@@ -945,11 +945,11 @@ def _filter_summary(opts):
         if vals:
             parts.append('%s：%s' % (label, '、'.join(str(v) for v in vals)))
     if opts.get('focusOnly'):
-        parts.append('只顯示需特別關注店鋪')
+        parts.append('只顯示需特別關注店舖')
     if opts.get('leanSkuOnly'):
-        parts.append('只顯示精簡SKU店鋪')
+        parts.append('只顯示精簡SKU店舖')
     if opts.get('templateOnly'):
-        parts.append('只顯示 stores-template 內店鋪')
+        parts.append('只顯示 stores-template 內店舖')
     return '；'.join(parts)
 
 
@@ -1040,13 +1040,13 @@ def build_workbook(ds, opts, report):
     ]
     if levels == ['shop']:
         lead = [
-            ('店鋪', 'label', 26), ('Site', 'text', 9), ('店名', 'text', 18),
+            ('店舖', 'label', 26), ('Site', 'text', 9), ('店名', 'text', 18),
             ('Regional', 'text', 9), ('OM', 'text', 9), ('Class 1', 'text', 8),
             ('Class 2', 'text', 8), ('Size', 'text', 7), ('Type', 'text', 6), ('需關注', 'text', 7),
         ]
     else:
         lead_name = ' ＞ '.join(GROUP_LABELS.get(l, l) for l in levels) if len(levels) > 1 else GROUP_LABELS.get(levels[0], '分組')
-        lead = [(lead_name, 'label', 30), ('店鋪數', 'qty', 9)]
+        lead = [(lead_name, 'label', 30), ('店舖數', 'qty', 9)]
     kinds = ['money', 'money', 'yoy', 'qty', 'qty', 'yoy', 'money', 'money', 'yoy', 'pct', 'pct', 'pp']
     kind_width = {'money': 15, 'qty': 11, 'yoy': 10, 'pct': 11, 'pp': 10, 'text': 9, 'label': 26}
 
@@ -1062,7 +1062,7 @@ def build_workbook(ds, opts, report):
             c.fill = head_fill if rr == h1 else sub_fill
             c.font = head_font if rr == h1 else Font(bold=True, color='334155')
 
-    # 第一欄（及分組模式的店鋪數欄）合併兩行
+    # 第一欄（及分組模式的店舖數欄）合併兩行
     vmerged = [1] + ([2] if levels != ['shop'] else [])
     for ci in vmerged:
         ws.merge_cells(start_row=h1, start_column=ci, end_row=h2, end_column=ci)
@@ -1074,10 +1074,10 @@ def build_workbook(ds, opts, report):
     ws.cell(row=h1, column=1, value=lead[0][0])
     col = 2
     if levels == ['shop']:
-        ws.cell(row=h1, column=2, value='店鋪資料')
+        ws.cell(row=h1, column=2, value='店舖資料')
         ws.merge_cells(start_row=h1, start_column=2, end_row=h1, end_column=len(lead))
     else:
-        ws.cell(row=h1, column=2, value='店鋪數')
+        ws.cell(row=h1, column=2, value='店舖數')
     col = len(lead) + 1
     for gname, subs in metric_groups:
         ws.cell(row=h1, column=col, value=gname)
@@ -1160,7 +1160,7 @@ def build_workbook(ds, opts, report):
             write_cell(r, len(lead) + 1 + j, kind, v, bold=bold, fill=fill)
         r += 1
 
-    # 總計列（分組模式時「店鋪數」欄顯示通過篩選的店鋪總數）
+    # 總計列（分組模式時「店舖數」欄顯示通過篩選的店舖總數）
     tot = report['totals']
     tot_g = {'cur': tot['cur'], 'ly': tot['ly'],
              'label': '總計', 'code': '', 'name': '', 'regional': '', 'om': '',
@@ -1234,20 +1234,20 @@ def build_matrix_workbook(ds, opts, matrix):
 
     if levels == ['shop']:
         lead = [
-            ('店鋪', 'label', 26), ('Site', 'text', 9), ('店名', 'text', 18),
+            ('店舖', 'label', 26), ('Site', 'text', 9), ('店名', 'text', 18),
             ('Regional', 'text', 9), ('OM', 'text', 9), ('Class 1', 'text', 8),
             ('Class 2', 'text', 8), ('Size', 'text', 7), ('Type', 'text', 6), ('需關注', 'text', 7),
         ]
-        lead_group_name = '店鋪資料'
+        lead_group_name = '店舖資料'
     else:
         lead_group_name = ' ＞ '.join(GROUP_LABELS.get(l, l) for l in levels) if len(levels) > 1 else GROUP_LABELS.get(levels[0], '分組')
-        lead = [(lead_group_name, 'label', 30), ('店鋪數', 'qty', 9)]
+        lead = [(lead_group_name, 'label', 30), ('店舖數', 'qty', 9)]
 
     ncols = len(lead) + len(sections) * (len(months) + 1)
 
     # ---- 表頭 ----
     if multi:
-        # 第一列：店鋪資料 + 各指標區塊（合併）
+        # 第一列：店舖資料 + 各指標區塊（合併）
         for cc in range(1, len(lead) + 1):
             c = ws.cell(row=h1, column=cc)
             c.fill = head_fill
@@ -1559,7 +1559,7 @@ def api_upload():
 
 @app.get('/api/progress/<task_id>')
 def api_progress(task_id):
-    """查詢解析進度；status = parsing / done / error。完成時一併回傳數據（大檔自動 gzip）。"""
+    """查詢解析進度；status = parsing / done / error。完成時一併回傳資料（大檔自動 gzip）。"""
     cached = None
     cached_gz = False
     resp = None
