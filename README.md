@@ -9,6 +9,12 @@
   - `Hugo_by Shop_YoY_*.xlsx`（店舖級每月匯總）
   - `Hugo_all_YoY_*.xlsx`（**SKU 明細**：含 Brand／MCH1／MCH2／MC／Nature／Postal 等維度）
 - **多維度分析**（明細檔限定）：「分組」可**多選（最多 3 層）**，維度包括：品牌 Brand／大分類 MCH1／中分類 MCH2／品類 MC／客群 Nature／客源 Postal／買手 Buyer／貨品狀態 Status／客戶類型 Customer／推廣 PromoID1、PromoID2；預設仍然係「**店舖 Site**」
+- **視覺化圖表**（KPI 卡下方，跟隨篩選即時更新）：
+  - **月度趨勢**：本期 vs 去年同期雙線（淨銷售／銷量／GP$），可切換成「淨銷售 YoY%」柱狀
+  - **店舖淨銷售排行**：增長 Top 8／衰退 Top 8 背對背條形圖，可按「變化額 Δ$」或「YoY%」排序；無論上方分組怎麼選，此圖固定為店舖級
+  - **分組對比**：Regional／Class 1／Class 2／OM／Size／Type 的 YoY 柱狀圖
+  - 全部為**手寫 SVG、零外部依賴**（不經 CDN，內網或斷網一樣出圖）；配色沿用全站「漲綠跌紅」（`--up` / `--down`），不採股市紅漲綠跌
+  - 圖表只消費前端 `compute()` / `computeMatrix()` 的既有結果，**不新增第三份計算口徑**
 - **多層分組檢視**：例如「品牌 › 品類」＝每個品牌總數＋其下品類明細（縮排顯示、每層小計）；累計、按月矩陣、全部指標、匯出 Excel 全部支援
 - 自動對照 `stores-template.csv`，為每間店補上 Regional／Class 1／Class 2／Size／OM／Type／需特別關注 等屬性
 - 篩選：**Site**（可搜尋、多選）、**年份**、**月份**（單月 = 單月 YoY；多月 = 累計 YoY，例如 1–9 月 YTD）

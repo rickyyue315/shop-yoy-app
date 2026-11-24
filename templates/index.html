@@ -710,6 +710,93 @@
   .badge.neg { background: var(--down-bg); color: var(--down); border-color: var(--down-border); }
   .badge.flat { background: #f1f5f9; color: var(--muted); border-color: var(--line); }
 
+  /* ---------- 圖表區 ---------- */
+  .charts-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin: 4px 0 12px;
+  }
+  .charts-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 700;
+    font-size: 14px;
+    letter-spacing: 0.2px;
+  }
+  .charts-title::before {
+    content: "";
+    width: 3px;
+    height: 15px;
+    border-radius: 2px;
+    background: linear-gradient(180deg, #3b82f6, #6366f1);
+  }
+  .charts-tools {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .charts-tools select {
+    padding: 5px 9px;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-sm);
+    background: #fff;
+    font-size: 12.5px;
+    color: var(--ink-2);
+    font-family: inherit;
+    cursor: pointer;
+  }
+  .charts-tools .mini a { white-space: nowrap; }
+  .chart-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+  .chart-card { margin-bottom: 0; padding: 14px 18px 10px; display: flex; flex-direction: column; }
+  .chart-card.wide { grid-column: 1 / -1; }
+  .chart-cap {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 6px;
+  }
+  .chart-cap b { font-size: 13px; font-weight: 700; color: var(--ink); }
+  .chart-body { position: relative; flex: 1; display: flex; flex-direction: column; justify-content: center; }
+  .chart-body svg { display: block; width: 100%; height: auto; overflow: visible; }
+  .chart-body text { font-family: inherit; }
+  .chart-empty {
+    padding: 32px 0;
+    text-align: center;
+    color: var(--muted);
+    font-size: 12.5px;
+  }
+  .legend {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    font-size: 11.5px;
+    color: var(--muted);
+    flex-wrap: wrap;
+  }
+  .legend i {
+    display: inline-block;
+    width: 10px;
+    height: 3px;
+    border-radius: 2px;
+    margin-right: 5px;
+    vertical-align: middle;
+  }
+  @media (max-width: 1100px) {
+    .chart-grid { grid-template-columns: 1fr; }
+    .chart-card.wide { grid-column: auto; }
+  }
+
   /* ---------- 資料表格 ---------- */
   .table-head {
     display: flex;
@@ -1044,6 +1131,64 @@
       </div>
     </div>
 
+    <div class="charts-head">
+      <div class="charts-title">視覺化分析</div>
+      <div class="charts-tools">
+        <span class="mini"><a id="btnChartsToggle">收合圖表</a></span>
+      </div>
+    </div>
+
+    <div id="chartGrid" class="chart-grid">
+      <div class="card chart-card wide">
+        <div class="chart-cap">
+          <b>月度趨勢</b>
+          <span class="legend">
+            <span><i style="background:#2563eb"></i>本期</span>
+            <span><i style="background:#94a3b8"></i>去年同期</span>
+            <select id="trendMetricSel" style="margin-left:6px;padding:2px 6px;border:1px solid var(--line-strong);border-radius:6px;background:#fff;font-size:11.5px;color:var(--ink-2);font-family:inherit">
+              <option value="salesVal">淨銷售</option>
+              <option value="qtyVal">銷量</option>
+              <option value="gpVal">毛利 GP$</option>
+              <option value="salesYoy">淨銷售 YoY%</option>
+            </select>
+          </span>
+        </div>
+        <div id="trendChart" class="chart-body"></div>
+      </div>
+
+      <div class="card chart-card">
+        <div class="chart-cap">
+          <b>店舖淨銷售排行</b>
+          <span class="legend">
+            <span class="muted" id="rankMeta"></span>
+            <select id="rankModeSel" style="padding:2px 6px;border:1px solid var(--line-strong);border-radius:6px;background:#fff;font-size:11.5px;color:var(--ink-2);font-family:inherit">
+              <option value="delta">按變化額 Δ$</option>
+              <option value="yoy">按 YoY%</option>
+            </select>
+          </span>
+        </div>
+        <div id="rankChart" class="chart-body"></div>
+      </div>
+
+      <div class="card chart-card">
+        <div class="chart-cap">
+          <b>分組對比</b>
+          <span class="legend">
+            <span class="muted" id="groupChartMeta"></span>
+            <select id="groupDimSel" style="padding:2px 6px;border:1px solid var(--line-strong);border-radius:6px;background:#fff;font-size:11.5px;color:var(--ink-2);font-family:inherit">
+              <option value="regional">Regional</option>
+              <option value="class1">Class 1</option>
+              <option value="class2">Class 2</option>
+              <option value="om">OM</option>
+              <option value="size">Size</option>
+              <option value="type">Type</option>
+            </select>
+          </span>
+        </div>
+        <div id="groupChart" class="chart-body"></div>
+      </div>
+    </div>
+
     <div class="card">
       <div class="table-head">
         <div><span id="periodLabel" class="period"></span> <span id="tableMeta" class="muted"></span></div>
@@ -1177,8 +1322,8 @@ function sortHierarchy(list, cmp) {
   return out;
 }
 
-function prepareRows() {
-  const L = state.groupBys;
+function prepareRows(groupBysOverride) {
+  const L = groupBysOverride || state.groupBys;
   const sites = DS.sites;
   const attrPass = s => {
     for (const k of ATTRS) {
@@ -1252,13 +1397,13 @@ function prepareRows() {
   return { pass, groups, groupsForRow, siteCount, siteMode };
 }
 
-function compute() {
+function compute(groupBysOverride) {
   const year = state.year, ly = year - 1;
   const rows = DS.rows, months = DS.months;
   const sel = state.months;
   const lysel = new Set([...sel].map(m => `${ly}-${m.slice(5)}`));
 
-  const { pass, groups, groupsForRow, siteCount } = prepareRows();
+  const { pass, groups, groupsForRow, siteCount } = prepareRows(groupBysOverride);
 
   for (const r of rows) {
     const si = r[1];
@@ -1612,6 +1757,300 @@ function updateCards(totals) {
   } else { b.className = 'badge flat'; b.textContent = '—'; }
 }
 
+/* ---------------- 圖表（手寫 SVG，零依賴） ---------------- */
+const TREND_METRIC = {
+  salesVal: { idx: 1, kind: 'money' },
+  qtyVal: { idx: 0, kind: 'qty' },
+  gpVal: { idx: 2, kind: 'money' }
+};
+
+function niceNum(range, round) {
+  if (!(range > 0) || !isFinite(range)) return 1;
+  const exp = Math.floor(Math.log10(range));
+  const f = range / Math.pow(10, exp);
+  let nf;
+  if (round) nf = f < 1.5 ? 1 : (f < 3 ? 2 : (f < 7 ? 5 : 10));
+  else nf = f <= 1 ? 1 : (f <= 2 ? 2 : (f <= 5 ? 5 : 10));
+  return nf * Math.pow(10, exp);
+}
+
+function niceScale(lo, hi, count) {
+  if (!isFinite(lo) || !isFinite(hi)) { lo = 0; hi = 1; }
+  if (hi === lo) hi = lo + (Math.abs(lo) || 1) * 0.1;
+  const step = niceNum((hi - lo) / Math.max(1, count - 1), true);
+  const nlo = Math.floor(lo / step) * step;
+  const nhi = Math.ceil(hi / step) * step;
+  const ticks = [];
+  for (let v = nlo, k = 0; v <= nhi + step * 1e-6 && k < 60; v += step, k++) ticks.push(v);
+  return { lo: nlo, hi: nhi, step: step, ticks: ticks };
+}
+
+function fmtAxis(v, kind) {
+  if (!isNum(v)) return '';
+  if (kind === 'pct') return (v * 100).toFixed(0) + '%';
+  const a = Math.abs(v);
+  if (a >= 1e8) return (v / 1e8).toFixed(a >= 1e9 ? 0 : 1).replace(/\.0$/, '') + '億';
+  if (a >= 1e4) return (v / 1e4).toFixed(a >= 1e6 ? 0 : 1).replace(/\.0$/, '') + '萬';
+  return nfInt.format(Math.round(v));
+}
+
+function fmtPct(v, dp) {
+  if (!isNum(v)) return '—';
+  return (v > 0 ? '+' : '') + (v * 100).toFixed(dp == null ? 1 : dp) + '%';
+}
+
+function truncLabel(s, n) {
+  s = String(s == null ? '' : s);
+  return s.length > n ? s.slice(0, n - 1) + '…' : s;
+}
+
+/* 月度趨勢：金額／銷量走「本期 vs 去年」雙線，YoY% 走單柱 */
+function renderTrendChart(mx) {
+  const host = $('#trendChart');
+  const months = mx.selMs || [];
+  if (!months.length) {
+    host.innerHTML = '<div class="chart-empty">請選擇至少一個月份</div>';
+    return;
+  }
+  const mk = $('#trendMetricSel').value;
+  const yoyMode = mk === 'salesYoy';
+  const def = TREND_METRIC[mk] || TREND_METRIC.salesVal;
+
+  const cur = months.map(m => yoyMode ? null : (mx.tm[m].cur[def.idx] || 0));
+  const ly = months.map(m => yoyMode ? null : (mx.tm[m].ly[def.idx] || 0));
+  const yoy = months.map(m => yoyMode ? yoyVal(mx.tm[m].cur[1], mx.tm[m].ly[1]) : null);
+
+  const anyData = yoyMode
+    ? yoy.some(v => isNum(v))
+    : (cur.some(v => v !== 0) || ly.some(v => v !== 0));
+  if (!anyData) {
+    host.innerHTML = '<div class="chart-empty">所選期間沒有可比資料</div>';
+    return;
+  }
+
+  const W = 1400, H = 330, PL = 96, PR = 30, PT = 20, PB = 48;
+  const PW = W - PL - PR, PH = H - PT - PB;
+  const n = months.length;
+
+  let scale;
+  if (yoyMode) {
+    const vals = yoy.filter(isNum);
+    const lo = Math.min(0, Math.min.apply(null, vals));
+    const hi = Math.max(0, Math.max.apply(null, vals));
+    scale = niceScale(lo, hi, 5);
+  } else {
+    const peak = Math.max.apply(null, cur.concat(ly).concat([0]));
+    scale = niceScale(0, (peak || 1) * 1.02, 5);
+  }
+  const yAt = v => PT + PH - ((v - scale.lo) / (scale.hi - scale.lo)) * PH;
+  const boxW = PW / n;
+  const xc = i => PL + boxW * (i + 0.5);
+  const xLine = i => n === 1 ? PL + PW / 2 : PL + (PW * i) / (n - 1);
+
+  let g = '';
+
+  for (const t of scale.ticks) {
+    const y = yAt(t);
+    const zero = Math.abs(t) < 1e-9;
+    g += `<line x1="${PL}" y1="${y.toFixed(1)}" x2="${W - PR}" y2="${y.toFixed(1)}" stroke="${zero ? '#cbd5e1' : '#eef2f7'}" stroke-width="${zero ? 1.2 : 1}"/>`
+      + `<text x="${PL - 12}" y="${(y + 3.6).toFixed(1)}" text-anchor="end" font-size="11" fill="#94a3b8">${fmtAxis(t, yoyMode ? 'pct' : def.kind)}</text>`;
+  }
+
+  for (let i = 0; i < n; i++) {
+    const x = (yoyMode || n === 1) ? xc(i) : xLine(i);
+    g += `<text x="${x.toFixed(1)}" y="${H - PB + 22}" text-anchor="middle" font-size="11" fill="#94a3b8">${months[i].slice(5)}</text>`;
+  }
+
+  if (!yoyMode && n > 1) {
+    let lyPath = '';
+    for (let i = 0; i < n; i++) lyPath += `${i ? 'L' : 'M'}${xLine(i).toFixed(1)},${yAt(ly[i]).toFixed(1)}`;
+    let area = `M${xLine(0).toFixed(1)},${yAt(scale.lo).toFixed(1)}`;
+    for (let i = 0; i < n; i++) area += `L${xLine(i).toFixed(1)},${yAt(cur[i]).toFixed(1)}`;
+    area += `L${xLine(n - 1).toFixed(1)},${yAt(scale.lo).toFixed(1)}Z`;
+
+    g += `<defs><linearGradient id="tgArea" x1="0" y1="0" x2="0" y2="1">`
+      + `<stop offset="0%" stop-color="#2563eb" stop-opacity="0.12"/>`
+      + `<stop offset="100%" stop-color="#2563eb" stop-opacity="0.01"/></linearGradient></defs>`;
+    g += `<path d="${area}" fill="url(#tgArea)"/>`;
+    g += `<path d="${lyPath}" fill="none" stroke="#94a3b8" stroke-width="2" stroke-dasharray="6 5" stroke-linecap="round"/>`;
+
+    let curPath = '';
+    for (let i = 0; i < n; i++) curPath += `${i ? 'L' : 'M'}${xLine(i).toFixed(1)},${yAt(cur[i]).toFixed(1)}`;
+    g += `<path d="${curPath}" fill="none" stroke="#2563eb" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>`;
+
+    for (let i = 0; i < n; i++) {
+      g += `<circle cx="${xLine(i).toFixed(1)}" cy="${yAt(ly[i]).toFixed(1)}" r="3.2" fill="#fff" stroke="#94a3b8" stroke-width="1.8"><title>${months[i]} 去年同期：${fmtInt(ly[i])}</title></circle>`;
+      g += `<circle cx="${xLine(i).toFixed(1)}" cy="${yAt(cur[i]).toFixed(1)}" r="4" fill="#fff" stroke="#2563eb" stroke-width="2.2"><title>${months[i]} 本期：${fmtInt(cur[i])}　YoY ${fmtPct(yoyVal(cur[i], ly[i]))}</title></circle>`;
+    }
+  } else if (yoyMode) {
+    const bw = Math.min(boxW * 0.55, 56);
+    for (let i = 0; i < n; i++) {
+      const v = yoy[i];
+      const y0 = yAt(0);
+      if (!isNum(v)) {
+        g += `<text x="${xc(i).toFixed(1)}" y="${(y0 - 8).toFixed(1)}" text-anchor="middle" font-size="10.5" fill="#cbd5e1">—</text>`;
+        continue;
+      }
+      const yv = yAt(v), top = Math.min(y0, yv), h = Math.max(Math.abs(y0 - yv), 1.5);
+      const fill = v >= 0 ? '#059669' : '#dc2626';
+      g += `<rect x="${(xc(i) - bw / 2).toFixed(1)}" y="${top.toFixed(1)}" width="${bw.toFixed(1)}" height="${h.toFixed(1)}" rx="3" fill="${fill}" fill-opacity="0.85"><title>${months[i]} 淨銷售 YoY ${fmtPct(v)}</title></rect>`;
+      g += `<text x="${xc(i).toFixed(1)}" y="${(v >= 0 ? top - 7 : top + h + 14).toFixed(1)}" text-anchor="middle" font-size="11" font-weight="700" fill="${fill}">${fmtPct(v)}</text>`;
+    }
+  } else {
+    const bw = Math.min(boxW * 0.2, 88), gap = 10;
+    const cx = xc(0);
+    const slots = [
+      { v: cur[0], x: cx - bw - gap / 2, fill: '#2563eb', name: '本期' },
+      { v: ly[0], x: cx + gap / 2, fill: '#cbd5e1', name: '去年同期' }
+    ];
+    const y0 = yAt(0);
+    for (const s of slots) {
+      const top = Math.min(y0, yAt(s.v)), h = Math.max(Math.abs(y0 - yAt(s.v)), 1.5);
+      g += `<rect x="${s.x.toFixed(1)}" y="${top.toFixed(1)}" width="${bw.toFixed(1)}" height="${h.toFixed(1)}" rx="4" fill="${s.fill}"><title>${months[0]} ${s.name}：${fmtInt(s.v)}</title></rect>`;
+      g += `<text x="${(s.x + bw / 2).toFixed(1)}" y="${(top - 8).toFixed(1)}" text-anchor="middle" font-size="11.5" font-weight="700" fill="${s.fill === '#cbd5e1' ? '#94a3b8' : s.fill}">${fmtAxis(s.v, def.kind)}</text>`;
+    }
+  }
+
+  host.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="月度趨勢圖">${g}</svg>`;
+}
+
+/* 店舖排行：增長 Top 8＋衰退 Top 8 的背對背條形圖（可按 Δ$ 或 YoY% 排） */
+function renderRankChart(rep) {
+  const host = $('#rankChart');
+  const mode = $('#rankModeSel').value === 'yoy' ? 'yoy' : 'delta';
+  const valOf = x => mode === 'yoy' ? x.yoy : x.delta;
+
+  const items = (rep.list || []).map(g => {
+    const cur = g.cur[1] || 0, ly = g.ly[1] || 0;
+    return { label: g.label, cur: cur, ly: ly, yoy: yoyVal(cur, ly), delta: cur - ly };
+  }).filter(x => {
+    if (mode === 'yoy') return isNum(x.yoy);
+    return (x.cur !== 0 || x.ly !== 0) && Math.abs(x.delta) > 1e-6;
+  });
+
+  if (!items.length) {
+    host.innerHTML = '<div class="chart-empty">沒有可比較的店舖（需有去年同期資料）</div>';
+    $('#rankMeta').textContent = '';
+    return;
+  }
+
+  items.sort((a, b) => valOf(b) - valOf(a));
+  const TOPN = 8;
+  let head, tail;
+  if (items.length <= TOPN * 2) { head = items; tail = []; }
+  else { head = items.slice(0, TOPN); tail = items.slice(-TOPN); }
+  $('#rankMeta').textContent = tail.length
+    ? `增長 ${TOPN} · 衰退 ${TOPN}（共 ${items.length} 間）`
+    : `共 ${items.length} 間`;
+
+  const rows = head.length + tail.length;
+  const W = 720, ROW = 24, PT = 6, PB = 8, SEP = 12;
+  const H = PT + rows * ROW + (tail.length ? SEP : 0) + PB;
+  const LABEL_W = 150, PLOT_R = 650;
+  const CX = (LABEL_W + PLOT_R) / 2;
+  const HALF = (PLOT_R - LABEL_W) / 2 - 72;
+  const maxAbs = Math.max.apply(null, items.map(x => Math.abs(valOf(x)))) || 0.01;
+
+  const tagOf = x => mode === 'yoy'
+    ? fmtPct(x.yoy)
+    : (x.delta > 0 ? '+' : '') + fmtInt(x.delta);
+
+  let g = `<line x1="${CX}" y1="${PT}" x2="${CX}" y2="${H - PB}" stroke="#e2e8f0" stroke-width="1"/>`;
+
+  const drawRow = (it, y) => {
+    const v = valOf(it);
+    const len = Math.max(2, Math.abs(v) / maxAbs * HALF);
+    const pos = v >= 0;
+    const fill = pos ? '#059669' : '#dc2626';
+    const x = pos ? CX : CX - len;
+    let s = `<rect x="${x.toFixed(1)}" y="${(y + (ROW - 14) / 2).toFixed(1)}" width="${len.toFixed(1)}" height="14" rx="3" fill="${fill}" fill-opacity="0.82">`
+      + `<title>${esc(it.label)}　本期 ${fmtInt(it.cur)}／去年 ${fmtInt(it.ly)}／Δ ${(it.delta > 0 ? '+' : '') + fmtInt(it.delta)}／YoY ${fmtPct(it.yoy)}</title></rect>`;
+    s += `<text x="${LABEL_W - 12}" y="${(y + ROW / 2 + 3.8).toFixed(1)}" text-anchor="end" font-size="11" fill="#475569">${esc(truncLabel(it.label, 12))}</text>`;
+    s += `<text x="${(pos ? CX + len + 7 : CX - len - 7).toFixed(1)}" y="${(y + ROW / 2 + 3.8).toFixed(1)}" text-anchor="${pos ? 'start' : 'end'}" font-size="11" font-weight="700" fill="${fill}">${tagOf(it)}</text>`;
+    return s;
+  };
+
+  let y = PT;
+  for (const it of head) { g += drawRow(it, y); y += ROW; }
+  if (tail.length) {
+    const ys = y + SEP / 2;
+    g += `<line x1="${LABEL_W}" y1="${ys.toFixed(1)}" x2="${PLOT_R + 60}" y2="${ys.toFixed(1)}" stroke="#e2e8f0" stroke-width="1" stroke-dasharray="4 4"/>`;
+    y += SEP;
+    for (const it of tail) { g += drawRow(it, y); y += ROW; }
+  }
+
+  host.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="店舖淨銷售排行">${g}</svg>`;
+}
+
+/* 分組對比：單一屬性的 YoY 柱狀圖 */
+function renderGroupChart(rep) {
+  const host = $('#groupChart');
+  const dim = $('#groupDimSel').value;
+  const items = (rep.list || []).filter(g => (g.depth || 0) === 0).map(g => ({
+    label: g.label,
+    yoy: yoyVal(g.cur[1], g.ly[1]),
+    cur: g.cur[1] || 0
+  }));
+
+  if (!items.length) {
+    host.innerHTML = '<div class="chart-empty">沒有資料</div>';
+    $('#groupChartMeta').textContent = '';
+    return;
+  }
+
+  items.sort((a, b) => b.cur - a.cur);
+  const total = items.length;
+  const shown = items.slice(0, 12);
+  $('#groupChartMeta').textContent = total > 12 ? `前 12／共 ${total} 項` : `共 ${total} 項`;
+
+  const W = 720, H = 320, PL = 62, PR = 18, PT = 28, PB = 84;
+  const PW = W - PL - PR, PH = H - PT - PB;
+  const n = shown.length;
+  const boxW = PW / n;
+
+  const vals = shown.map(x => x.yoy).filter(isNum).concat([0]);
+  const lo = Math.min(0, Math.min.apply(null, vals));
+  const hi = Math.max(0, Math.max.apply(null, vals));
+  const scale = niceScale(lo, hi, 5);
+  const yAt = v => PT + PH - ((v - scale.lo) / (scale.hi - scale.lo)) * PH;
+  const y0 = yAt(0);
+
+  let g = '';
+  for (const t of scale.ticks) {
+    const y = yAt(t);
+    const zero = Math.abs(t) < 1e-9;
+    g += `<line x1="${PL}" y1="${y.toFixed(1)}" x2="${W - PR}" y2="${y.toFixed(1)}" stroke="${zero ? '#cbd5e1' : '#eef2f7'}" stroke-width="${zero ? 1.2 : 1}"/>`
+      + `<text x="${PL - 10}" y="${(y + 3.6).toFixed(1)}" text-anchor="end" font-size="10.5" fill="#94a3b8">${fmtAxis(t, 'pct')}</text>`;
+  }
+
+  const bw = Math.min(boxW * 0.58, 44);
+  shown.forEach((it, i) => {
+    const cx = PL + boxW * (i + 0.5);
+    if (isNum(it.yoy)) {
+      const yv = yAt(it.yoy), top = Math.min(y0, yv), h = Math.max(Math.abs(y0 - yv), 1.5);
+      const fill = it.yoy >= 0 ? '#059669' : '#dc2626';
+      g += `<rect x="${(cx - bw / 2).toFixed(1)}" y="${top.toFixed(1)}" width="${bw.toFixed(1)}" height="${h.toFixed(1)}" rx="3" fill="${fill}" fill-opacity="0.85"><title>${esc(it.label)}　YoY ${fmtPct(it.yoy)}／本期淨銷售 ${fmtInt(it.cur)}</title></rect>`;
+      g += `<text x="${cx.toFixed(1)}" y="${(it.yoy >= 0 ? top - 6 : top + h + 12).toFixed(1)}" text-anchor="middle" font-size="10.5" font-weight="700" fill="${fill}">${fmtPct(it.yoy)}</text>`;
+    } else {
+      g += `<text x="${cx.toFixed(1)}" y="${(y0 - 6).toFixed(1)}" text-anchor="middle" font-size="10" fill="#cbd5e1">無同比</text>`;
+    }
+    const ly = H - PB + 14;
+    g += `<text x="${cx.toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="end" font-size="10.5" fill="#64748b" transform="rotate(-32 ${cx.toFixed(1)} ${ly.toFixed(1)})">${esc(truncLabel(it.label, 10))}</text>`;
+  });
+
+  host.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(dim)} YoY 對比">${g}</svg>`;
+}
+
+function renderCharts(mx, rep) {
+  if (!DS || !mx) return;
+  const onlyShop = state.groupBys.length === 1 && state.groupBys[0] === 'shop';
+  renderTrendChart(mx);
+  renderRankChart(onlyShop ? rep : compute(['shop']));
+  const dim = $('#groupDimSel').value;
+  const onlyDim = state.groupBys.length === 1 && state.groupBys[0] === dim;
+  renderGroupChart(onlyDim ? rep : compute([dim]));
+}
+
 function render() {
   const rep = compute();
   updateCards(rep.totals);
@@ -1629,14 +2068,15 @@ function render() {
     warn.classList.remove('hidden');
   } else warn.classList.add('hidden');
 
+  const mx = computeMatrix();
   if (state.view === 'matrix') {
-    const mx = computeMatrix();
     $('#tableMeta').textContent = `· 按月矩陣 · 分組：${levelsLabel()} · ${mx.list.length} 行 · 共 ${mx.siteCount} 間店舖`;
     renderMatrix(mx);
   } else {
     $('#tableMeta').textContent = `· 分組：${levelsLabel()} · ${rep.list.length} 行 · 共 ${rep.siteCount} 間店舖`;
     renderTable(rep);
   }
+  renderCharts(mx, rep);
 }
 
 /* ---------------- 篩選元件 ---------------- */
@@ -2057,6 +2497,16 @@ $('#thead').addEventListener('click', e => {
 });
 
 $('#btnExport').addEventListener('click', exportXlsx);
+
+/* ---------- 圖表控制 ---------- */
+$('#trendMetricSel').addEventListener('change', () => render());
+$('#rankModeSel').addEventListener('change', () => render());
+$('#groupDimSel').addEventListener('change', () => render());
+$('#btnChartsToggle').addEventListener('click', e => {
+  const grid = $('#chartGrid');
+  const collapsed = grid.classList.toggle('hidden');
+  e.currentTarget.textContent = collapsed ? '展開圖表' : '收合圖表';
+});
 </script>
 </body>
 </html>
