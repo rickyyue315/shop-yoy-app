@@ -1412,11 +1412,12 @@ function esc(s) {
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 function yoyVal(cur, ly) { return (isNum(ly) && ly > 0 && isNum(cur)) ? (cur - ly) / ly : null; }
-function yoyHTML(cur, ly) {
+function yoyHTML(cur, ly, title) {
   const v = yoyVal(cur, ly);
-  if (v === null) return '<td class="num dim">—</td>';
+  const t = title ? ` title="${esc(title)}"` : '';
+  if (v === null) return `<td class="num dim"${t}>—</td>`;
   const cls = v > 0.0005 ? 'pos' : (v < -0.0005 ? 'neg' : '');
-  return `<td class="num ${cls}">${v > 0 ? '+' : ''}${(v * 100).toFixed(1)}%</td>`;
+  return `<td class="num ${cls}"${t}>${v > 0 ? '+' : ''}${(v * 100).toFixed(1)}%</td>`;
 }
 function pctHTML(v, sec) {
   const s = sec ? ' sec' : '';
@@ -1464,6 +1465,16 @@ function addMonths(m, delta) {
   y += Math.floor((n - 1) / 12);
   n = ((n - 1) % 12 + 12) % 12 + 1;
   return `${y}-${String(n).padStart(2, '0')}`;
+}
+function isComparableMonth(m) {
+  ensureSiteMonth();
+  return DS._monthIndex.has(m) && DS._monthIndex.has(addMonths(m, -12));
+}
+function periodUsedTitle(used, defined) {
+  const missing = defined.filter(m => !used.includes(m));
+  let t = used.length ? `使用月份：${used.join('、')}` : '期間內沒有可比較月份（同期資料不足）';
+  if (missing.length) t += `；已剔除：${missing.join('、')}`;
+  return t;
 }
 
 /* ---------------- 計算 ---------------- */
@@ -1639,8 +1650,11 @@ const PERIOD_SORT_METRIC = {
 };
 
 function computePeriods() {
-  const defs = state.periodGroups;
   const year = state.year;
+  const defs = state.periodGroups.map(p => {
+    const used = p.months.filter(n => isComparableMonth(`${year}-${String(n).padStart(2, '0')}`));
+    return { ...p, definedMonths: [...p.months], months: used };
+  });
   const { pass, groups, groupsForRow, siteCount } = prepareRows();
   const byMonth = new Map();
   defs.forEach((p, idx) => p.months.forEach(n => {
@@ -1869,8 +1883,11 @@ function ensureSiteMonth() {
 function skuCalc(si, adj, preOverride, postOverride) {
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(String(adj || '')) || si == null) return null;
   ensureSiteMonth();
-  const preMs = (preOverride && preOverride.length) ? preOverride : [-3, -2, -1].map(d => addMonths(adj, d));
-  const postMs = (postOverride && postOverride.length) ? postOverride : [1, 2, 3].map(d => addMonths(adj, d));
+  const preAll = (preOverride && preOverride.length) ? preOverride : [-3, -2, -1].map(d => addMonths(adj, d));
+  const postAll = (postOverride && postOverride.length) ? postOverride : [1, 2, 3].map(d => addMonths(adj, d));
+  // 只計「本期有資料 + 去年同期有得比」的月份，避免缺月份拉低／拉高 YoY。
+  const preMs = preAll.filter(isComparableMonth);
+  const postMs = postAll.filter(isComparableMonth);
 
   const sum = ms => {
     const cur = [0, 0, 0], ly = [0, 0, 0];
@@ -1902,7 +1919,7 @@ function skuCalc(si, adj, preOverride, postOverride) {
       }
     }
   }
-  return { pre, post, skuCount, skuMonth };
+  return { pre, post, preMs, postMs, preAll, postAll, skuCount, skuMonth };
 }
 
 function renderSkuTable() {
@@ -1924,12 +1941,11 @@ function renderSkuTable() {
     return { g, code, si, adj, calc: adj ? skuCalc(si, adj, preOverride, postOverride) : null };
   });
 
-  const key = ['skuLabel', 'skuAdj', 'skuCount', 'skuPre', 'skuPost'].includes(state.sortKey)
+  const key = ['skuLabel', 'skuAdj', 'skuPre', 'skuPost'].includes(state.sortKey)
     ? state.sortKey : 'skuLabel';
   const dir = state.sortDir === 'asc' ? 1 : -1;
   const valOf = r => {
     if (key === 'skuAdj') return r.adj || null;
-    if (key === 'skuCount') return r.calc ? r.calc.skuCount : null;
     if (key === 'skuPre') return r.calc ? yoyVal(r.calc.pre.cur[1], r.calc.pre.ly[1]) : null;
     if (key === 'skuPost') return r.calc ? yoyVal(r.calc.post.cur[1], r.calc.post.ly[1]) : null;
     return null;
@@ -1952,39 +1968,36 @@ function renderSkuTable() {
     });
   }
 
-  const preHead = useP ? `執整前（${esc(periodName(pgPre))}）合計YOY%` : '執整前三個月合計YOY%';
-  const postHead = useP ? `執整後（${esc(periodName(pgPost))}）合計YOY%` : '執整後三個月合計YOY%';
+  const preHead = useP ? `執整前（${esc(periodName(pgPre))}）合計YOY%` : '執整前合計YOY%';
+  const postHead = useP ? `執整後（${esc(periodName(pgPost))}）合計YOY%` : '執整後合計YOY%';
   $('#thead').innerHTML = `<tr>
     <th class="sticky-col sortable" data-sort="skuLabel">Site${ind('skuLabel')}</th>
     <th class="num sortable" data-sort="skuAdj">執整月份${ind('skuAdj')}</th>
-    <th class="num sortable" data-sort="skuCount">執整前SKU${ind('skuCount')}</th>
-    <th class="num sortable" data-sort="skuPre">${preHead}${ind('skuPre')}</th>
-    <th class="num sortable" data-sort="skuPost">${postHead}${ind('skuPost')}</th>
+    <th class="num sortable" data-sort="skuPre" title="預設執整月份前 3 個月；只計有資料月份">${preHead}${ind('skuPre')}</th>
+    <th class="num sortable" data-sort="skuPost" title="預設執整月份後 3 個月；只計有資料月份">${postHead}${ind('skuPost')}</th>
   </tr>`;
 
   if (!rows.length) {
-    $('#tbody').innerHTML = '<tr><td class="empty" colspan="5">沒有符合條件的店舖</td></tr>';
-    return { count: 0, siteCount, hasSku: !!DS.skuCounts };
+    $('#tbody').innerHTML = '<tr><td class="empty" colspan="4">沒有符合條件的店舖</td></tr>';
+    return { count: 0, siteCount };
   }
 
   let html = '';
   for (const r of rows) {
     const c = r.calc;
-    const sku = c ? c.skuCount : null;
-    const skuTip = c && c.skuMonth
-      ? `執整前 SKU（${c.skuMonth}）` : '未有 SKU 資料（此檔案可能沒有 SKU 欄）';
+    const preTitle = c ? periodUsedTitle(c.preMs, c.preAll) : '';
+    const postTitle = c ? periodUsedTitle(c.postMs, c.postAll) : '';
     const opts = ['<option value="">— 未設定 —</option>']
       .concat(DS.months.map(m => `<option value="${m}"${m === r.adj ? ' selected' : ''}>${m}</option>`))
       .join('');
     html += `<tr>${leadCellHTML(r.g)}
       <td class="num"><select class="sku-month" data-code="${esc(r.code)}">${opts}</select></td>
-      <td class="num" title="${esc(skuTip)}">${isNum(sku) ? fmtInt(sku) : '—'}</td>
-      ${c ? yoyHTML(c.pre.cur[1], c.pre.ly[1]) : '<td class="num dim">—</td>'}
-      ${c ? yoyHTML(c.post.cur[1], c.post.ly[1]) : '<td class="num dim">—</td>'}
+      ${c ? yoyHTML(c.pre.cur[1], c.pre.ly[1], preTitle) : '<td class="num dim">—</td>'}
+      ${c ? yoyHTML(c.post.cur[1], c.post.ly[1], postTitle) : '<td class="num dim">—</td>'}
     </tr>`;
   }
   $('#tbody').innerHTML = html;
-  return { count: rows.length, siteCount, hasSku: !!DS.skuCounts };
+  return { count: rows.length, siteCount };
 }
 
 /* ---------------- 畫面 ---------------- */
@@ -2077,7 +2090,10 @@ function renderPeriodTable(pr) {
   let h1 = `<tr><th class="sticky-col sortable" rowspan="2" data-sort="label">${levelsLabel()}${ind('label')}</th>`;
   let h2 = '<tr>';
   pr.defs.forEach((p, gi) => {
-    h1 += `<th class="mgroup${gi ? ' sec' : ''}" colspan="${PERIOD_COLS.length}">${esc(periodName(p))}</th>`;
+    const usedDates = (p.months || []).map(n => `${state.year}-${String(n).padStart(2, '0')}`);
+    const definedDates = (p.definedMonths || p.months || []).map(n => `${state.year}-${String(n).padStart(2, '0')}`);
+    const title = periodUsedTitle(usedDates, definedDates);
+    h1 += `<th class="mgroup${gi ? ' sec' : ''}" colspan="${PERIOD_COLS.length}" title="${esc(title)}">${esc(periodName(p))}</th>`;
     PERIOD_COLS.forEach(([label, mk], j) => {
       const key = `p${gi}:${mk}`;
       h2 += `<th class="num sortable${gi && j === 0 ? ' sec' : ''}" data-sort="${key}">${label}${ind(key)}</th>`;
@@ -2553,7 +2569,7 @@ function render() {
   let note = '';
   if (isPeriod) {
     note = state.periodGroups.length
-      ? '每組獨立計算本期與去年同期；<b>KPI 卡顯示第一組</b>。YoY = 該組月份合計 ÷ 去年同期同月合計 − 1。'
+      ? '每組獨立計算本期與去年同期；<b>KPI 卡顯示第一組</b>。YoY = 該組有資料月份合計 ÷ 去年同期同月合計 − 1；未有資料月份會自動剔除（分子分母同時剔除），可將滑鼠移到組名查看實際使用月份。'
       : '請先按上方「期間組合」新增至少一組（例如 3–5月、8–10月）。';
     if (state.periodGroups.length && DS.latestMonth
         && DS.latestMonth.slice(0, 4) === String(state.year)
@@ -2571,13 +2587,11 @@ function render() {
       $('#skuUsePeriodsWrap').title = canUseP ? '' : '需先設定至少兩組期間組合';
     }
     if (useP) {
-      note = `使用期間組合：前＝<b>${esc(periodName(state.periodGroups[0]))}</b>、後＝<b>${esc(periodName(state.periodGroups[1]))}</b>（以執整月份所屬年份套用）；執整前 SKU 仍取執整月份前一個月。KPI 卡仍按上方所選月份。`;
-    } else if (!DS.skuCounts) {
-      note = '此檔案沒有 <b>SKU</b> 欄，所以「執整前SKU」會顯示 —；前後 YoY 仍可正常計算。KPI 卡仍按上方所選月份。';
+      note = `使用期間組合：前＝<b>${esc(periodName(state.periodGroups[0]))}</b>、後＝<b>${esc(periodName(state.periodGroups[1]))}</b>（以執整月份所屬年份套用）；期間內未有資料月份會自動剔除（分子分母同時剔除）。KPI 卡仍按上方所選月份。`;
     } else if (!Object.keys(state.adjustMonths).length) {
-      note = '請在每行選擇執整月份，或使用上方批量套用。執整前 SKU = 執整月份前一個月有銷售 SKU 數。KPI 卡仍按上方所選月份。';
+      note = '請在每行選擇執整月份，或使用上方批量套用。KPI 卡仍按上方所選月份。';
     } else {
-      note = '執整前 = 執整月份前 3 個月、執整後 = 之後 3 個月（均不含執整月份）；<b>YoY = 三個月合計</b>。執整前 SKU = 執整月份前一個月有銷售 SKU 數；執整後如超出資料範圍會顯示 —。KPI 卡仍按上方所選月份。';
+      note = '執整前 = 執整月份前 3 個月、執整後 = 之後 3 個月（均不含執整月份）；<b>YoY = 期間內有資料月份合計 ÷ 去年同期同月合計 − 1</b>。未有資料月份會自動剔除（分子分母同時剔除）；將滑鼠移到 YoY 儲存格可看實際使用月份。KPI 卡仍按上方所選月份。';
     }
   }
   const noteEl = $('#viewNote');

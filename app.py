@@ -174,6 +174,15 @@ def _add_months(month, delta):
     return '%04d-%02d' % (total // 12, total % 12 + 1)
 
 
+def _comparable_months(months, month_index):
+    """只保留「本期有資料 + 去年同期有得比」的月份。
+
+    例如資料只到 2026-10，執整後期間 2026-10～12 只會保留 2026-10；
+    去年同期亦只會計 2025-10，避免缺月份令 YoY 失真。
+    """
+    return [m for m in months if m in month_index and _add_months(m, -12) in month_index]
+
+
 def _period_label(months):
     """把月份清單化成易讀字串，如 '2026-01 至 2026-09'。"""
     if not months:
@@ -1044,6 +1053,16 @@ def compute_periods(ds, opts):
     pass_set = prep['pass_set']
     site_mode = prep['site_mode']
     months_list = ds['months']
+    months_set = set(months_list)
+
+    # 只計本期有資料、去年同期亦有得比的月份；避免缺月份令 YoY 失真。
+    for p in periods:
+        p['definedMonths'] = list(p['months'])
+        p['months'] = [
+            n for n in p['months']
+            if '%d-%02d' % (year, n) in months_set
+            and '%d-%02d' % (year - 1, n) in months_set
+        ]
 
     by_month = {}
     for idx, p in enumerate(periods):
@@ -1158,11 +1177,13 @@ def compute_sku_report(ds, opts):
         adj = adjust.get(code, '')
         if use_periods and adj:
             y = adj[:4]
-            pre = ['%s-%02d' % (y, n) for n in periods[0]['months']]
-            post = ['%s-%02d' % (y, n) for n in periods[1]['months']]
+            pre_all = ['%s-%02d' % (y, n) for n in periods[0]['months']]
+            post_all = ['%s-%02d' % (y, n) for n in periods[1]['months']]
         else:
-            pre = [_add_months(adj, d) for d in (-3, -2, -1)] if adj else []
-            post = [_add_months(adj, d) for d in (1, 2, 3)] if adj else []
+            pre_all = [_add_months(adj, d) for d in (-3, -2, -1)] if adj else []
+            post_all = [_add_months(adj, d) for d in (1, 2, 3)] if adj else []
+        pre = _comparable_months(pre_all, m_ix)
+        post = _comparable_months(post_all, m_ix)
         ly_pre = [_add_months(m, -12) for m in pre]
         ly_post = [_add_months(m, -12) for m in post]
         targets.update(pre)
@@ -1781,7 +1802,7 @@ def build_period_workbook(ds, opts, report):
 
     _write_title_block(ws, ds, opts, months, ly_months,
                        extra_line='檢視：期間比較（每組獨立合計 YoY）')
-    ws['A7'] = '口徑：每組 YoY = 該組月份合計 ÷ 去年同期同月合計 − 1'
+    ws['A7'] = '口徑：每組 YoY = 該組有資料月份合計 ÷ 去年同期同月合計 − 1；未有資料月份會自動剔除（分子分母同時剔除）'
     ws['A7'].font = Font(size=10, color='475569')
 
     header_row = 8
@@ -1941,14 +1962,14 @@ def build_sku_workbook(ds, opts, report):
 
     periods = report.get('periods') or []
     use_periods = bool(report.get('usePeriods')) and len(periods) >= 2
-    pre_head = ('執整前（%s）合計YOY%%' % periods[0]['name']) if use_periods else '執整前3個月合計YOY%'
-    post_head = ('執整後（%s）合計YOY%%' % periods[1]['name']) if use_periods else '執整後3個月合計YOY%'
+    pre_head = ('執整前（%s）合計YOY%%' % periods[0]['name']) if use_periods else '執整前合計YOY%'
+    post_head = ('執整後（%s）合計YOY%%' % periods[1]['name']) if use_periods else '執整後合計YOY%'
 
     _write_title_block(ws, ds, opts, [], [], extra_line='檢視：SKU 執整成效')
-    ws['A3'] = '比較方式：每店按執整月份，前後各 3 個月合計 YoY' if not use_periods else \
-        '比較方式：每店按執整月份，使用期間組合「%s」vs「%s」' % (periods[0]['name'], periods[1]['name'])
+    ws['A3'] = '比較方式：每店按執整月份，前後各最多 3 個月合計 YoY（缺月份自動剔除）' if not use_periods else \
+        '比較方式：每店按執整月份，使用期間組合「%s」vs「%s」（缺月份自動剔除）' % (periods[0]['name'], periods[1]['name'])
     ws['A3'].font = Font(size=11, bold=True, color='0F172A')
-    ws['A7'] = '執整前 SKU = 執整月份前一個月有銷售 SKU 數；YoY = 期間合計 ÷ 去年同期同月合計 − 1'
+    ws['A7'] = 'YoY = 期間內有資料月份合計 ÷ 去年同期同月合計 − 1；未有資料月份會自動剔除（分子分母同時剔除）'
     if use_periods:
         ws['A7'] = ws['A7'].value + '（期間組合以執整月份所屬年份套用）'
     ws['A7'].font = Font(size=10, color='475569')
@@ -1958,8 +1979,7 @@ def build_sku_workbook(ds, opts, report):
         ('店舖', 'label', 26), ('Site', 'text', 9), ('店名', 'text', 18),
         ('Regional', 'text', 9), ('OM', 'text', 9), ('Class 1', 'text', 8),
         ('Class 2', 'text', 8), ('Size', 'text', 7), ('Type', 'text', 6),
-        ('執整月份', 'text', 11), ('執整前SKU', 'qty', 10),
-        ('執整前SKU月份', 'text', 12), (pre_head, 'yoy', 15),
+        ('執整月份', 'text', 11), (pre_head, 'yoy', 15),
         (post_head, 'yoy', 15),
     ]
 
@@ -1998,8 +2018,7 @@ def build_sku_workbook(ds, opts, report):
             (row['label'], 'label'), (row['code'], 'text'), (row['name'], 'text'),
             (row['regional'], 'text'), (row['om'], 'text'), (row['class1'], 'text'),
             (row['class2'], 'text'), (row['size'], 'text'), (row['type'], 'text'),
-            (row['adjustMonth'], 'text'), (row['skuCount'], 'qty'),
-            (row['skuMonth'], 'text'), (row['preYoy'], 'yoy'), (row['postYoy'], 'yoy'),
+            (row['adjustMonth'], 'text'), (row['preYoy'], 'yoy'), (row['postYoy'], 'yoy'),
         ]
         for ci, (v, kind) in enumerate(vals, start=1):
             write_cell(r, ci, kind, v)

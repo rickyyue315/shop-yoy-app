@@ -220,8 +220,8 @@ def test_sku_adjust_report_and_export():
     first = [c.value for c in ws[9]]
     assert first[headers.index('Site')] == 'HA01'
     assert first[headers.index('執整月份')] == '2026-02'
-    assert first[headers.index('執整前SKU')] == 7
-    assert round(first[headers.index('執整前3個月合計YOY%')], 6) == 0.25
+    assert '執整前SKU' not in headers
+    assert round(first[headers.index('執整前合計YOY%')], 6) == 0.25
 
 
 def test_sku_adjust_uses_custom_period_groups():
@@ -241,6 +241,47 @@ def test_sku_adjust_uses_custom_period_groups():
     headers = [c.value for c in ws[8]]
     assert '執整前（1月）合計YOY%' in headers
     assert '執整後（2月）合計YOY%' in headers
+
+
+def test_period_group_uses_only_comparable_months():
+    ds = make_ds()
+    o = opts(
+        periodGroups=[{'name': '1–3月', 'months': [1, 2, 3]}],
+        sortKey='p0:sales', sortDir='desc')
+    pr = A.compute_periods(ds, o)
+
+    # 2026-03 及 2025-03 都沒有資料 → 只計 1、2 月
+    assert pr['periods'][0]['definedMonths'] == [1, 2, 3]
+    assert pr['periods'][0]['months'] == [1, 2]
+    assert pr['totals'][0]['cur'] == [28, 520.0, 164.0]
+    assert pr['totals'][0]['ly'] == [32, 440.0, 138.0]
+
+
+def test_sku_post_uses_only_months_with_comparables():
+    months = ['2025-01', '2025-02', '2025-03', '2025-04', '2026-01', '2026-02']
+    sites = [dict(SITES[0])]
+    rows = [
+        [0, 0, 10, 80.0, 32.0],    # 2025-01
+        [1, 0, 10, 120.0, 48.0],   # 2025-02
+        [2, 0, 10, 300.0, 120.0],  # 2025-03
+        [3, 0, 10, 400.0, 160.0],  # 2025-04
+        [4, 0, 10, 100.0, 40.0],   # 2026-01
+        [5, 0, 10, 150.0, 60.0],   # 2026-02
+    ]
+    ds = {
+        'kind': 'shop', 'months': months,
+        'years': {'2025': months[:4], '2026': months[4:]},
+        'sites': sites, 'rows': rows, 'latestMonth': '2026-02',
+        'rowCount': len(rows), 'siteCount': 1,
+    }
+    o = opts(adjustMonths={'HA01': '2026-01'}, sortKey='skuLabel', sortDir='asc')
+    sk = A.compute_sku_report(ds, o)
+    r = sk['rows'][0]
+
+    # 執整後 2026-02..04：2026-03、04 沒有本期資料，只計 2026-02（150 vs 120）
+    assert round(r['postYoy'], 6) == 0.25
+    # 執整前 2025-10..12 完全沒有資料
+    assert r['preYoy'] is None
 
 
 def test_export_row_order_matches_screen():
