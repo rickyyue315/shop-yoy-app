@@ -393,13 +393,14 @@
     border-bottom: 1px solid #f1f5f9;
   }
   .frow:last-child { border-bottom: none; }
-  .frow > label {
+  .frow > label, .fgroup > label {
     color: var(--ink-2);
     font-weight: 700;
     font-size: 12.5px;
     min-width: 54px;
     letter-spacing: 0.2px;
   }
+  .fgroup { display: inline-flex; align-items: center; gap: 8px; }
   .sep { width: 1px; height: 22px; background: var(--line); margin: 0 6px; }
   .mini {
     display: inline-flex;
@@ -589,6 +590,54 @@
     text-decoration: none;
   }
   .ms-actions a:hover { text-decoration: underline; }
+  .ms-mode {
+    display: inline-flex;
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    overflow: hidden;
+    margin-right: 2px;
+  }
+  .mode-btn {
+    border: 0;
+    background: #fff;
+    color: var(--ink-2);
+    font-family: inherit;
+    font-size: 11.5px;
+    padding: 4px 9px;
+    cursor: pointer;
+  }
+  .mode-btn + .mode-btn { border-left: 1px solid var(--line); }
+  .mode-btn.on { background: var(--accent); color: #fff; font-weight: 600; }
+  .period-editor {
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+    border-top: 1px solid #eef2f7;
+    margin-top: 8px;
+    padding-top: 10px;
+  }
+  .period-editor .chips { gap: 4px; }
+  .period-editor .chip { min-width: 34px; padding: 5px 0; text-align: center; }
+  .period-editor-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 12px;
+  }
+  .period-editor-actions a { color: var(--accent); cursor: pointer; font-weight: 600; }
+  .period-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 8px;
+    border-radius: 8px;
+    font-size: 13px;
+  }
+  .period-item:hover { background: #f1f5f9; }
+  .period-item .p-name { font-weight: 600; min-width: 78px; }
+  .period-item .p-months { color: var(--muted); font-size: 11.5px; flex: 1; }
+  .period-item a { color: var(--accent); cursor: pointer; font-size: 11.5px; text-decoration: none; }
+  .period-item a:hover { text-decoration: underline; }
   .ms-list {
     max-height: 310px;
     overflow: auto;
@@ -811,6 +860,42 @@
     font-size: 14px;
     color: var(--ink);
   }
+  .view-note {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-left: 4px solid var(--accent);
+    border-radius: 10px;
+    padding: 10px 13px;
+    margin-bottom: 12px;
+    font-size: 12.5px;
+    color: #475569;
+    line-height: 1.6;
+  }
+  .view-note b { color: var(--ink); }
+  .sku-tools {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+    padding: 10px 12px;
+    background: #f8fafc;
+    border: 1px solid #eef2f7;
+    border-radius: 10px;
+    font-size: 12.5px;
+    color: #475569;
+  }
+  .sku-tools select, .sku-month {
+    font-family: inherit;
+    font-size: 12.5px;
+    padding: 5px 8px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: #fff;
+    color: var(--ink);
+  }
+  .sku-tools .btn { padding: 5px 10px; font-size: 12px; }
+  .sku-tools a { color: var(--accent); cursor: pointer; font-weight: 600; }
   .table-wrap {
     overflow: auto;
     max-height: 68vh;
@@ -1004,7 +1089,7 @@
       <ul class="tips">
         <li>上載後可按 Site、年份、月份，以及 Regional／OM／品牌等維度最多 3 層分組分析</li>
         <li>自動對照內置 stores-template 店舖主檔，計算淨銷售、銷量、GP$ 及毛利率同期 YoY</li>
-        <li>支援「累計」與「按月矩陣」雙模式檢視，一按即可匯出排版完整的 Excel 報告</li>
+        <li>支援「累計」「按月矩陣」「自訂期間比較」「SKU 執整成效」多種檢視，一按即可匯出 Excel</li>
         <li>資料只存於伺服器記憶體、逾時自動刪除，亦可隨時按右上角「清除資料」</li>
       </ul>
     </div>
@@ -1033,31 +1118,59 @@
           </div>
         </div>
         <span class="sep"></span>
-        <label>檢視</label>
-        <select id="viewSel">
-          <option value="agg">累計（合併月份）</option>
-          <option value="matrix">按月矩陣</option>
-        </select>
-        <select id="metricSel" class="hidden" title="矩陣顯示指標">
-          <option value="all">全部指標（同步顯示）</option>
-          <option value="allv">全部指標＋值（同步顯示）</option>
-          <option value="salesYoy">淨銷售 YoY%</option>
-          <option value="qtyYoy">銷量 YoY%</option>
-          <option value="gpYoy">毛利 GP$ YoY%</option>
-          <option value="gpPp">毛利率 ±pp</option>
-          <option value="salesVal">淨銷售（值）</option>
-          <option value="qtyVal">銷量（值）</option>
-          <option value="gpVal">毛利 GP$（值）</option>
-          <option value="gpPctVal">毛利率（值）</option>
-        </select>
+        <span class="fgroup">
+          <label>檢視</label>
+          <select id="viewSel">
+            <option value="agg">累計（合併月份）</option>
+            <option value="matrix">按月矩陣</option>
+            <option value="period">期間比較（自訂組合）</option>
+            <option value="sku">SKU 執整成效</option>
+          </select>
+          <select id="metricSel" class="hidden" title="矩陣顯示指標">
+            <option value="all">全部指標（同步顯示）</option>
+            <option value="allv">全部指標＋值（同步顯示）</option>
+            <option value="salesYoy">淨銷售 YoY%</option>
+            <option value="qtyYoy">銷量 YoY%</option>
+            <option value="gpYoy">毛利 GP$ YoY%</option>
+            <option value="gpPp">毛利率 ±pp</option>
+            <option value="salesVal">淨銷售（值）</option>
+            <option value="qtyVal">銷量（值）</option>
+            <option value="gpVal">毛利 GP$（值）</option>
+            <option value="gpPctVal">毛利率（值）</option>
+          </select>
+        </span>
       </div>
       <div class="frow">
+        <label>期間組合</label>
+        <div class="ms" id="periodMS">
+          <button id="btnPeriods" class="ms-btn">期間組合 ▾</button>
+          <div id="periodPanel" class="ms-panel hidden">
+            <div class="ms-actions">
+              <span class="muted">每組自選月份，獨立計 YoY</span>
+              <a id="btnPeriodAdd">＋ 新增組合</a>
+            </div>
+            <div id="periodList" class="ms-list"></div>
+            <div id="periodEditor" class="period-editor hidden">
+              <input id="periodName" class="ms-search" placeholder="組合名稱（留空自動命名）">
+              <div id="periodMonthChips" class="chips"></div>
+              <div class="period-editor-actions">
+                <button id="btnPeriodSave" class="btn primary" type="button">儲存</button>
+                <a id="btnPeriodCancel">取消</a>
+              </div>
+            </div>
+          </div>
+        </div>
+        <span class="sep"></span>
         <label>店舖</label>
         <div class="ms" id="siteMS">
           <button id="btnSite" class="ms-btn">全部店舖 ▾</button>
           <div id="sitePanel" class="ms-panel hidden">
             <input id="siteSearch" class="ms-search" placeholder="搜尋 Site／店名…">
             <div class="ms-actions">
+              <span class="ms-mode" id="siteModeSwitch">
+                <button type="button" class="mode-btn on" data-mode="multi">多選</button>
+                <button type="button" class="mode-btn" data-mode="single">單選</button>
+              </span>
               <a id="btnSitesAll">全選</a><a id="btnSitesClear">清除</a>
               <span id="siteCount" class="muted"></span>
             </div>
@@ -1131,6 +1244,7 @@
       </div>
     </div>
 
+    <div id="chartsSection">
     <div class="charts-head">
       <div class="charts-title">視覺化分析</div>
       <div class="charts-tools">
@@ -1188,11 +1302,23 @@
         <div id="groupChart" class="chart-body"></div>
       </div>
     </div>
+    </div>
 
     <div class="card">
       <div class="table-head">
         <div><span id="periodLabel" class="period"></span> <span id="tableMeta" class="muted"></span></div>
         <button id="btnExport" class="btn primary">⬇ 下載 Excel</button>
+      </div>
+      <div id="viewNote" class="view-note hidden"></div>
+      <div id="skuTools" class="sku-tools hidden">
+        <label>套用執整月份至所有已選店舖</label>
+        <select id="skuBulkMonth"></select>
+        <button id="btnSkuBulkApply" class="btn" type="button">套用</button>
+        <a id="btnSkuClearAll">清除全部</a>
+        <label class="chk" id="skuUsePeriodsWrap" title="需先設定至少兩組期間組合">
+          <input type="checkbox" id="chkSkuUsePeriods"> 使用期間組合（第一組＝前、第二組＝後）
+        </label>
+        <span class="muted">選「— 清除 —」再按套用，可清除已選店舖的執整月份</span>
       </div>
       <div class="table-wrap">
         <table>
@@ -1233,12 +1359,49 @@ const GROUP_LABEL_JS = {
 let DS = null, TOKEN = null, TTL = 0;
 
 const state = {
-  year: null, months: new Set(), sites: new Set(),
+  year: null, months: new Set(), sites: new Set(), siteMode: 'multi',
   regional: new Set(), om: new Set(), class1: new Set(), class2: new Set(), size: new Set(), type: new Set(),
   focusOnly: false, templateOnly: false, leanSkuOnly: false, hideEmpty: true,
   groupBys: ['shop'], view: 'agg', matrixMetric: 'salesYoy',
+  periodGroups: [], editingPeriodId: null, adjustMonths: {}, skuUsePeriods: false,
   sortKey: 'curSales', sortDir: 'desc'
 };
+
+/* 期間組合與執整月份屬使用者設定，存在瀏覽器；換資料檔仍可沿用。 */
+function loadPrefs() {
+  try {
+    const p = JSON.parse(localStorage.getItem('shopYoyPrefs') || 'null');
+    if (!p || typeof p !== 'object') return;
+    if (Array.isArray(p.periodGroups)) {
+      state.periodGroups = p.periodGroups.map((g, i) => {
+        const months = [...new Set((g && g.months || []).map(Number))]
+          .filter(n => Number.isInteger(n) && n >= 1 && n <= 12).sort((a, b) => a - b);
+        return months.length ? {
+          id: String((g && g.id) || ('pg' + i + '_' + Date.now())),
+          name: String((g && g.name) || '').trim(),
+          months
+        } : null;
+      }).filter(Boolean).slice(0, 6);
+    }
+    if (p.adjustMonths && typeof p.adjustMonths === 'object') {
+      state.adjustMonths = {};
+      for (const [code, m] of Object.entries(p.adjustMonths)) {
+        if (/^\d{4}-(0[1-9]|1[0-2])$/.test(String(m))) state.adjustMonths[String(code)] = String(m);
+      }
+    }
+    state.skuUsePeriods = !!p.skuUsePeriods;
+  } catch (e) { /* localStorage 不可用時忽略 */ }
+}
+function savePrefs() {
+  try {
+    localStorage.setItem('shopYoyPrefs', JSON.stringify({
+      periodGroups: state.periodGroups,
+      adjustMonths: state.adjustMonths,
+      skuUsePeriods: state.skuUsePeriods
+    }));
+  } catch (e) { /* 忽略 */ }
+}
+loadPrefs();
 
 /* ---------------- 格式化 ---------------- */
 const nfInt = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 });
@@ -1278,6 +1441,29 @@ function monthsLabel(ms, year) {
     a === b ? `${year}-${two(a)}`
       : (b === a + 1 ? `${year}-${two(a)}、${year}-${two(b)}`
         : `${year}-${two(a)} 至 ${year}-${two(b)}`)).join('、');
+}
+
+function periodMonthsLabel(nums) {
+  const ns = [...new Set((nums || []).map(Number).filter(n => n >= 1 && n <= 12))].sort((a, b) => a - b);
+  if (!ns.length) return '（未選月份）';
+  const ranges = [];
+  let s = ns[0], p = ns[0];
+  for (let i = 1; i < ns.length; i++) {
+    if (ns[i] === p + 1) p = ns[i];
+    else { ranges.push([s, p]); s = p = ns[i]; }
+  }
+  ranges.push([s, p]);
+  return ranges.map(([a, b]) =>
+    a === b ? `${a}月` :
+      (b === a + 1 ? `${a}、${b}月` : `${a}–${b}月`)).join('、');
+}
+function periodName(g) { return (g && g.name) || periodMonthsLabel(g && g.months); }
+function addMonths(m, delta) {
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(String(m || ''))) return '';
+  let y = +m.slice(0, 4), n = +m.slice(5, 7) + delta;
+  y += Math.floor((n - 1) / 12);
+  n = ((n - 1) % 12 + 12) % 12 + 1;
+  return `${y}-${String(n).padStart(2, '0')}`;
 }
 
 /* ---------------- 計算 ---------------- */
@@ -1445,6 +1631,94 @@ function compute(groupBysOverride) {
   return { list, totals, siteCount };
 }
 
+/* ---- 自訂期間組合 ---- */
+const PERIOD_SORT_METRIC = {
+  sales: 'salesVal', salesYoy: 'salesYoy',
+  qty: 'qtyVal', qtyYoy: 'qtyYoy',
+  gp: 'gpVal', gpYoy: 'gpYoy', gpPp: 'gpPp'
+};
+
+function computePeriods() {
+  const defs = state.periodGroups;
+  const year = state.year;
+  const { pass, groups, groupsForRow, siteCount } = prepareRows();
+  const byMonth = new Map();
+  defs.forEach((p, idx) => p.months.forEach(n => {
+    if (!byMonth.has(n)) byMonth.set(n, []);
+    byMonth.get(n).push(idx);
+  }));
+
+  const ensure = g => {
+    if (!g.periods) g.periods = defs.map(() => ({ cur: [0, 0, 0], ly: [0, 0, 0] }));
+  };
+  for (const g of groups.values()) ensure(g);
+
+  for (const r of DS.rows) {
+    const si = r[1];
+    if (!pass[si]) continue;
+    const m = DS.months[r[0]];
+    const y = +m.slice(0, 4), n = +m.slice(5, 7);
+    if (y !== year && y !== year - 1) continue;
+    const idxs = byMonth.get(n);
+    if (!idxs) continue;
+    const t = y === year ? 'cur' : 'ly';
+    const gs = groupsForRow(r, si);
+    for (const g of gs) {
+      if (!g) continue;
+      ensure(g);
+      for (const gi of idxs) {
+        const a = g.periods[gi][t];
+        a[0] += r[2]; a[1] += r[3]; a[2] += r[4];
+      }
+    }
+  }
+
+  let list = [...groups.values()];
+  if (state.hideEmpty) {
+    list = list.filter(g => (g.periods || []).some(p =>
+      p.cur[0] || p.cur[1] || p.cur[2] || p.ly[0] || p.ly[1] || p.ly[2]));
+  }
+
+  const key = state.sortKey === 'label' ? 'label'
+    : (/^p\d+:(sales|salesYoy|qty|qtyYoy|gp|gpYoy|gpPp)$/.test(state.sortKey || '')
+      ? state.sortKey : 'p0:sales');
+  const dir = state.sortDir === 'asc' ? 1 : -1;
+  let valOf = null;
+  if (key !== 'label') {
+    const [pstr, metric] = key.split(':');
+    const gi = +pstr.slice(1);
+    valOf = g => {
+      const p = g.periods && g.periods[gi];
+      if (!p) return null;
+      return cellMetric(p.cur, p.ly, PERIOD_SORT_METRIC[metric] || 'salesVal');
+    };
+  }
+  const cmp = (a, b) => {
+    if (key === 'label' || !valOf) return dir * a.label.localeCompare(b.label, 'zh-Hant');
+    const av = valOf(a), bv = valOf(b);
+    const an = !isNum(av), bn = !isNum(bv);
+    if (an && bn) return a.label.localeCompare(b.label, 'zh-Hant');
+    if (an) return 1;
+    if (bn) return -1;
+    return dir * (av - bv);
+  };
+  list = sortHierarchy(list, cmp);
+
+  const totals = defs.map(() => ({ cur: [0, 0, 0], ly: [0, 0, 0] }));
+  for (const g of list) {
+    if (g.depth) continue;
+    defs.forEach((p, gi) => {
+      const gp = g.periods[gi];
+      if (!gp) return;
+      for (let j = 0; j < 3; j++) {
+        totals[gi].cur[j] += gp.cur[j];
+        totals[gi].ly[j] += gp.ly[j];
+      }
+    });
+  }
+  return { list, defs, totals, siteCount };
+}
+
 /* ---- 按月矩陣 ---- */
 const METRIC_KIND = { salesYoy: 'yoy', qtyYoy: 'yoy', gpYoy: 'yoy', gpPp: 'pp', salesVal: 'money', qtyVal: 'qty', gpVal: 'money', gpPctVal: 'pct' };
 const MATRIX_ALL = [['salesYoy', '淨銷售 YoY%'], ['qtyYoy', '銷量 YoY%'], ['gpYoy', '毛利 GP$ YoY%'], ['gpPp', '毛利率 ±pp']];
@@ -1578,6 +1852,141 @@ function computeMatrix() {
   return { list, selMs, tm, ta, siteCount };
 }
 
+/* ---- SKU 執整 ---- */
+function ensureSiteMonth() {
+  if (DS._siteMonth) return;
+  const sm = Array.from({ length: DS.sites.length }, () => new Array(DS.months.length));
+  for (const r of DS.rows) {
+    let a = sm[r[1]][r[0]];
+    if (!a) a = sm[r[1]][r[0]] = [0, 0, 0];
+    a[0] += r[2]; a[1] += r[3]; a[2] += r[4];
+  }
+  DS._siteMonth = sm;
+  DS._monthIndex = new Map(DS.months.map((m, i) => [m, i]));
+  DS._codeIndex = new Map(DS.sites.map((s, i) => [s.code, i]));
+}
+
+function skuCalc(si, adj, preOverride, postOverride) {
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(String(adj || '')) || si == null) return null;
+  ensureSiteMonth();
+  const preMs = (preOverride && preOverride.length) ? preOverride : [-3, -2, -1].map(d => addMonths(adj, d));
+  const postMs = (postOverride && postOverride.length) ? postOverride : [1, 2, 3].map(d => addMonths(adj, d));
+
+  const sum = ms => {
+    const cur = [0, 0, 0], ly = [0, 0, 0];
+    for (const m of ms) {
+      const mi = DS._monthIndex.get(m);
+      if (mi != null) {
+        const a = DS._siteMonth[si][mi];
+        if (a) { cur[0] += a[0]; cur[1] += a[1]; cur[2] += a[2]; }
+      }
+      const lm = addMonths(m, -12);
+      const li = DS._monthIndex.get(lm);
+      if (li != null) {
+        const a = DS._siteMonth[si][li];
+        if (a) { ly[0] += a[0]; ly[1] += a[1]; ly[2] += a[2]; }
+      }
+    }
+    return { cur, ly };
+  };
+
+  const pre = sum(preMs), post = sum(postMs);
+  let skuCount = null, skuMonth = '';
+  const arr = (DS.skuCounts || {})[DS.sites[si].code];
+  if (arr) {
+    const tryMonths = [addMonths(adj, -1), ...preMs.slice().reverse()];
+    for (const m of tryMonths) {
+      const mi = DS._monthIndex.get(m);
+      if (mi != null && arr[mi] != null) {
+        skuCount = arr[mi]; skuMonth = m; break;
+      }
+    }
+  }
+  return { pre, post, skuCount, skuMonth };
+}
+
+function renderSkuTable() {
+  ensureSiteMonth();
+  const { groups, siteCount } = prepareRows(['shop']);
+  const useP = !!(state.skuUsePeriods && state.periodGroups.length >= 2);
+  const pgPre = useP ? state.periodGroups[0] : null;
+  const pgPost = useP ? state.periodGroups[1] : null;
+  const rows = [...groups.values()].map(g => {
+    const code = g.site ? g.site.code : g.code;
+    const si = DS._codeIndex.get(code);
+    const adj = state.adjustMonths[code] || '';
+    let preOverride = null, postOverride = null;
+    if (useP && adj) {
+      const y = adj.slice(0, 4);
+      preOverride = pgPre.months.map(n => `${y}-${String(n).padStart(2, '0')}`);
+      postOverride = pgPost.months.map(n => `${y}-${String(n).padStart(2, '0')}`);
+    }
+    return { g, code, si, adj, calc: adj ? skuCalc(si, adj, preOverride, postOverride) : null };
+  });
+
+  const key = ['skuLabel', 'skuAdj', 'skuCount', 'skuPre', 'skuPost'].includes(state.sortKey)
+    ? state.sortKey : 'skuLabel';
+  const dir = state.sortDir === 'asc' ? 1 : -1;
+  const valOf = r => {
+    if (key === 'skuAdj') return r.adj || null;
+    if (key === 'skuCount') return r.calc ? r.calc.skuCount : null;
+    if (key === 'skuPre') return r.calc ? yoyVal(r.calc.pre.cur[1], r.calc.pre.ly[1]) : null;
+    if (key === 'skuPost') return r.calc ? yoyVal(r.calc.post.cur[1], r.calc.post.ly[1]) : null;
+    return null;
+  };
+  if (key === 'skuLabel') {
+    rows.sort((a, b) => dir * a.g.label.localeCompare(b.g.label, 'zh-Hant'));
+  } else if (key === 'skuAdj') {
+    const filled = rows.filter(r => r.adj);
+    const empty = rows.filter(r => !r.adj);
+    filled.sort((a, b) => dir * a.adj.localeCompare(b.adj));
+    rows.splice(0, rows.length, ...filled, ...empty);
+  } else {
+    rows.sort((a, b) => {
+      const av = valOf(a), bv = valOf(b);
+      const an = !isNum(av), bn = !isNum(bv);
+      if (an && bn) return a.g.label.localeCompare(b.g.label, 'zh-Hant');
+      if (an) return 1;
+      if (bn) return -1;
+      return dir * (av - bv);
+    });
+  }
+
+  const preHead = useP ? `執整前（${esc(periodName(pgPre))}）合計YOY%` : '執整前三個月合計YOY%';
+  const postHead = useP ? `執整後（${esc(periodName(pgPost))}）合計YOY%` : '執整後三個月合計YOY%';
+  $('#thead').innerHTML = `<tr>
+    <th class="sticky-col sortable" data-sort="skuLabel">Site${ind('skuLabel')}</th>
+    <th class="num sortable" data-sort="skuAdj">執整月份${ind('skuAdj')}</th>
+    <th class="num sortable" data-sort="skuCount">執整前SKU${ind('skuCount')}</th>
+    <th class="num sortable" data-sort="skuPre">${preHead}${ind('skuPre')}</th>
+    <th class="num sortable" data-sort="skuPost">${postHead}${ind('skuPost')}</th>
+  </tr>`;
+
+  if (!rows.length) {
+    $('#tbody').innerHTML = '<tr><td class="empty" colspan="5">沒有符合條件的店舖</td></tr>';
+    return { count: 0, siteCount, hasSku: !!DS.skuCounts };
+  }
+
+  let html = '';
+  for (const r of rows) {
+    const c = r.calc;
+    const sku = c ? c.skuCount : null;
+    const skuTip = c && c.skuMonth
+      ? `執整前 SKU（${c.skuMonth}）` : '未有 SKU 資料（此檔案可能沒有 SKU 欄）';
+    const opts = ['<option value="">— 未設定 —</option>']
+      .concat(DS.months.map(m => `<option value="${m}"${m === r.adj ? ' selected' : ''}>${m}</option>`))
+      .join('');
+    html += `<tr>${leadCellHTML(r.g)}
+      <td class="num"><select class="sku-month" data-code="${esc(r.code)}">${opts}</select></td>
+      <td class="num" title="${esc(skuTip)}">${isNum(sku) ? fmtInt(sku) : '—'}</td>
+      ${c ? yoyHTML(c.pre.cur[1], c.pre.ly[1]) : '<td class="num dim">—</td>'}
+      ${c ? yoyHTML(c.post.cur[1], c.post.ly[1]) : '<td class="num dim">—</td>'}
+    </tr>`;
+  }
+  $('#tbody').innerHTML = html;
+  return { count: rows.length, siteCount, hasSku: !!DS.skuCounts };
+}
+
 /* ---------------- 畫面 ---------------- */
 const METRIC_DEFS = [
   { title: '淨銷售', subs: [['本期', 'curSales'], ['去年同期', null], ['YoY%', 'yoySales']] },
@@ -1649,6 +2058,59 @@ function renderTable(rep) {
     const totG = { label: '總計', n: siteCount, cur: totals.cur, ly: totals.ly, site: null, depth: 0 };
     html += rowHTML(totG, true);
     for (const g of list) html += rowHTML(g, false);
+  }
+  $('#tbody').innerHTML = html;
+}
+
+const PERIOD_COLS = [
+  ['淨銷售', 'sales'], ['淨銷售 YoY%', 'salesYoy'],
+  ['銷量', 'qty'], ['銷量 YoY%', 'qtyYoy'],
+  ['毛利 GP$', 'gp'], ['GP$ YoY%', 'gpYoy'], ['毛利率 ±pp', 'gpPp']
+];
+
+function renderPeriodTable(pr) {
+  if (!pr || !pr.defs || !pr.defs.length) {
+    $('#thead').innerHTML = '';
+    $('#tbody').innerHTML = '<tr><td class="empty" colspan="7">請先新增至少一個期間組合（例如 3–5月、8–10月）。</td></tr>';
+    return;
+  }
+  let h1 = `<tr><th class="sticky-col sortable" rowspan="2" data-sort="label">${levelsLabel()}${ind('label')}</th>`;
+  let h2 = '<tr>';
+  pr.defs.forEach((p, gi) => {
+    h1 += `<th class="mgroup${gi ? ' sec' : ''}" colspan="${PERIOD_COLS.length}">${esc(periodName(p))}</th>`;
+    PERIOD_COLS.forEach(([label, mk], j) => {
+      const key = `p${gi}:${mk}`;
+      h2 += `<th class="num sortable${gi && j === 0 ? ' sec' : ''}" data-sort="${key}">${label}${ind(key)}</th>`;
+    });
+  });
+  h2 += '</tr>';
+  $('#thead').innerHTML = h1 + h2;
+
+  const cellsFor = g => {
+    let html = '';
+    pr.defs.forEach((p, gi) => {
+      const gp = g.periods && g.periods[gi] ? g.periods[gi] : { cur: [0, 0, 0], ly: [0, 0, 0] };
+      const cur = gp.cur, ly = gp.ly;
+      const pc = cur[1] ? cur[2] / cur[1] : null;
+      const pl = ly[1] ? ly[2] / ly[1] : null;
+      html += `<td class="num${gi ? ' sec' : ''}">${fmtInt(cur[1])}</td>${yoyHTML(cur[1], ly[1])}`;
+      html += `<td class="num">${fmtInt(cur[0])}</td>${yoyHTML(cur[0], ly[0])}`;
+      html += `<td class="num">${fmtInt(cur[2])}</td>${yoyHTML(cur[2], ly[2])}`;
+      html += ppHTML(pc, pl);
+    });
+    return html;
+  };
+
+  let html = '';
+  if (!pr.list.length) {
+    html = `<tr><td class="empty" colspan="${1 + pr.defs.length * PERIOD_COLS.length}">沒有符合條件的資料</td></tr>`;
+  } else {
+    const totG = { label: '總計', n: pr.siteCount, site: null, depth: 0, periods: pr.totals };
+    html += `<tr class="total"><td class="lead sticky-col">總計 (${pr.siteCount} 間)</td>${cellsFor(totG)}</tr>`;
+    for (const g of pr.list) {
+      const isParent = state.groupBys.length > 1 && (g.depth || 0) === 0;
+      html += `<tr${isParent ? ' class="parent-row"' : ''}>${leadCellHTML(g)}${cellsFor(g)}</tr>`;
+    }
   }
   $('#tbody').innerHTML = html;
 }
@@ -2052,44 +2514,216 @@ function renderCharts(mx, rep) {
 }
 
 function render() {
+  const isPeriod = state.view === 'period';
+  const isSku = state.view === 'sku';
   const rep = compute();
-  updateCards(rep.totals);
+  const mx = (isPeriod || isSku) ? null : computeMatrix();
+  let pr = null, skuInfo = null;
+
+  if (isPeriod) {
+    pr = computePeriods();
+    const t = pr.defs.length ? pr.totals[0] : rep.totals;
+    updateCards(t);
+  } else {
+    updateCards(rep.totals);
+  }
 
   const sel = [...state.months].sort();
   const n = sel.length;
-  $('#periodLabel').textContent = n
-    ? `比較期間：${monthsLabel(sel, state.year)}（共 ${n} 個月）  vs  ${monthsLabel(sel.map(m => `${state.year - 1}-${m.slice(5)}`), state.year - 1)}`
-    : '請選擇至少一個月份';
+  if (isPeriod) {
+    const names = state.periodGroups.map(periodName);
+    $('#periodLabel').textContent = names.length
+      ? `期間組合：${names.join(' vs ')}（每組獨立合計 YoY；KPI 卡為第一組）`
+      : '期間組合：（未設定）';
+  } else if (isSku) {
+    $('#periodLabel').textContent = 'SKU 執整成效';
+  } else {
+    $('#periodLabel').textContent = n
+      ? `比較期間：${monthsLabel(sel, state.year)}（共 ${n} 個月）  vs  ${monthsLabel(sel.map(m => `${state.year - 1}-${m.slice(5)}`), state.year - 1)}`
+      : '請選擇至少一個月份';
+  }
 
   const latest = DS.latestMonth;
   const warn = $('#warnLatest');
-  if (latest && latest.slice(0, 4) === String(state.year) && state.months.has(latest)) {
+  if (!isSku && !isPeriod && latest && latest.slice(0, 4) === String(state.year) && state.months.has(latest)) {
     warn.textContent = `⚠️ ${latest} 可能為不完整月份（若為本月進行中的資料），與去年同月比較時 YoY 數字請斟酌參考。`;
     warn.classList.remove('hidden');
   } else warn.classList.add('hidden');
 
-  const mx = computeMatrix();
-  if (state.view === 'matrix') {
+  let note = '';
+  if (isPeriod) {
+    note = state.periodGroups.length
+      ? '每組獨立計算本期與去年同期；<b>KPI 卡顯示第一組</b>。YoY = 該組月份合計 ÷ 去年同期同月合計 − 1。'
+      : '請先按上方「期間組合」新增至少一組（例如 3–5月、8–10月）。';
+    if (state.periodGroups.length && DS.latestMonth
+        && DS.latestMonth.slice(0, 4) === String(state.year)
+        && state.periodGroups.some(g => g.months.includes(+DS.latestMonth.slice(5, 7)))) {
+      note += ` ⚠️ ${DS.latestMonth} 可能為不完整月份。`;
+    }
+  } else if (isSku) {
+    const canUseP = state.periodGroups.length >= 2;
+    if (!canUseP && state.skuUsePeriods) state.skuUsePeriods = false;
+    const useP = !!(state.skuUsePeriods && canUseP);
+    const chk = $('#chkSkuUsePeriods');
+    if (chk) {
+      chk.checked = useP;
+      chk.disabled = !canUseP;
+      $('#skuUsePeriodsWrap').title = canUseP ? '' : '需先設定至少兩組期間組合';
+    }
+    if (useP) {
+      note = `使用期間組合：前＝<b>${esc(periodName(state.periodGroups[0]))}</b>、後＝<b>${esc(periodName(state.periodGroups[1]))}</b>（以執整月份所屬年份套用）；執整前 SKU 仍取執整月份前一個月。KPI 卡仍按上方所選月份。`;
+    } else if (!DS.skuCounts) {
+      note = '此檔案沒有 <b>SKU</b> 欄，所以「執整前SKU」會顯示 —；前後 YoY 仍可正常計算。KPI 卡仍按上方所選月份。';
+    } else if (!Object.keys(state.adjustMonths).length) {
+      note = '請在每行選擇執整月份，或使用上方批量套用。執整前 SKU = 執整月份前一個月有銷售 SKU 數。KPI 卡仍按上方所選月份。';
+    } else {
+      note = '執整前 = 執整月份前 3 個月、執整後 = 之後 3 個月（均不含執整月份）；<b>YoY = 三個月合計</b>。執整前 SKU = 執整月份前一個月有銷售 SKU 數；執整後如超出資料範圍會顯示 —。KPI 卡仍按上方所選月份。';
+    }
+  }
+  const noteEl = $('#viewNote');
+  if (note) { noteEl.innerHTML = note; noteEl.classList.remove('hidden'); }
+  else noteEl.classList.add('hidden');
+  $('#skuTools').classList.toggle('hidden', !isSku);
+  $('#chartsSection').classList.toggle('hidden', isSku || isPeriod);
+
+  if (isPeriod) {
+    $('#tableMeta').textContent = `· 期間比較 · 分組：${levelsLabel()} · ${pr.list.length} 行 · 共 ${pr.siteCount} 間店舖`;
+    renderPeriodTable(pr);
+  } else if (isSku) {
+    skuInfo = renderSkuTable();
+    $('#tableMeta').textContent = `· ${skuInfo.count} 間店舖 · 按每行執整月份`;
+  } else if (state.view === 'matrix') {
     $('#tableMeta').textContent = `· 按月矩陣 · 分組：${levelsLabel()} · ${mx.list.length} 行 · 共 ${mx.siteCount} 間店舖`;
     renderMatrix(mx);
   } else {
     $('#tableMeta').textContent = `· 分組：${levelsLabel()} · ${rep.list.length} 行 · 共 ${rep.siteCount} 間店舖`;
     renderTable(rep);
   }
-  renderCharts(mx, rep);
+  if (!isSku && !isPeriod) renderCharts(mx, rep);
 }
 
 /* ---------------- 篩選元件 ---------------- */
 function updateSiteBtn() {
   const total = DS.sites.length, sel = state.sites.size;
   const btn = $('#btnSite');
-  btn.textContent = (sel === total ? `全部店舖（${total}） ` : (sel === 0 ? '未選擇店舖 ' : `已選 ${sel}／${total} 店舖 `)) + '▾';
-  $('#siteSummary').textContent = sel === total ? `全部（${total}）` : `已選 ${sel}／${total}`;
+  if (state.siteMode === 'single' && sel === 1) {
+    const s = DS.sites[[...state.sites][0]];
+    btn.textContent = `店舖：${s.code}${s.name ? ' ' + s.name : ''} ▾`;
+  } else {
+    btn.textContent = (sel === total ? `全部店舖（${total}） ` : (sel === 0 ? '未選擇店舖 ' : `已選 ${sel}／${total} 店舖 `)) + '▾';
+  }
+  $('#siteSummary').textContent = state.siteMode === 'single'
+    ? (sel === 1 ? '單選模式' : '單選模式（請揀一間）')
+    : (sel === total ? `全部（${total}）` : `已選 ${sel}／${total}`);
   $('#siteCount').textContent = `已選 ${sel}／${total}`;
+  document.querySelectorAll('#siteModeSwitch .mode-btn').forEach(b => {
+    b.classList.toggle('on', b.dataset.mode === state.siteMode);
+  });
+  const all = $('#btnSitesAll');
+  if (all) all.style.display = state.siteMode === 'single' ? 'none' : '';
 }
 
 function updateGroupBtn() {
   $('#btnGroup').textContent = '分組：' + levelsLabel() + ' ▾';
+}
+
+function updatePeriodBtn() {
+  const n = state.periodGroups.length;
+  $('#btnPeriods').textContent = (n ? `期間組合（${n}）` : '期間組合') + ' ▾';
+}
+
+function renderPeriodList() {
+  const el = $('#periodList');
+  if (!state.periodGroups.length) {
+    el.innerHTML = '<div class="ms-none muted">未設定組合；可新增「3–5月」「8–10月」等</div>';
+    return;
+  }
+  el.innerHTML = state.periodGroups.map(g => {
+    const name = periodName(g), ml = periodMonthsLabel(g.months);
+    const meta = ml !== name ? `<span class="p-months">${esc(ml)}</span>` : '<span class="p-months"></span>';
+    return `<div class="period-item" data-id="${esc(g.id)}">
+      <span class="p-name">${esc(name)}</span>${meta}
+      <a data-act="up" title="上移">↑</a>
+      <a data-act="down" title="下移">↓</a>
+      <a data-act="edit">編輯</a>
+      <a data-act="del">刪除</a>
+    </div>`;
+  }).join('');
+}
+
+function renderPeriodMonthChips(selected) {
+  const avail = new Set(DS.years[String(state.year)] || []);
+  $('#periodMonthChips').innerHTML = Array.from({ length: 12 }, (_, i) => {
+    const n = i + 1;
+    const m = `${state.year}-${String(n).padStart(2, '0')}`;
+    const on = selected.has(n) ? ' on' : '';
+    const title = avail.has(m) ? m : `${m}（該年未有資料）`;
+    return `<button type="button" class="chip${on}" data-m="${n}" title="${title}">${String(n).padStart(2, '0')}</button>`;
+  }).join('');
+}
+
+function startPeriodEditor(id) {
+  const g = id ? state.periodGroups.find(x => x.id === id) : null;
+  state.editingPeriodId = g ? g.id : null;
+  $('#periodName').value = g ? (g.name || '') : '';
+  renderPeriodMonthChips(new Set(g ? g.months : []));
+  $('#periodEditor').classList.remove('hidden');
+}
+
+function cancelPeriodEditor() {
+  state.editingPeriodId = null;
+  $('#periodEditor').classList.add('hidden');
+}
+
+function savePeriodEditor() {
+  const months = [...$('#periodMonthChips').querySelectorAll('button.chip.on')]
+    .map(b => +b.dataset.m).sort((a, b) => a - b);
+  if (!months.length) { alert('請至少選擇一個月份。'); return; }
+  let name = $('#periodName').value.trim();
+  if (!name) name = periodMonthsLabel(months);
+  if (!state.editingPeriodId && state.periodGroups.length >= 6) {
+    alert('最多只可以設定 6 組期間組合。');
+    return;
+  }
+  if (state.editingPeriodId) {
+    const g = state.periodGroups.find(x => x.id === state.editingPeriodId);
+    if (g) { g.name = name; g.months = months; }
+  } else {
+    state.periodGroups.push({ id: 'pg' + Date.now() + '_' + Math.random().toString(36).slice(2, 6), name, months });
+  }
+  savePrefs();
+  renderPeriodList();
+  updatePeriodBtn();
+  cancelPeriodEditor();
+  if (state.view === 'period') { resetSort(); render(); }
+  else if (state.view === 'sku') render();
+}
+
+/* ---- 期間組合清單操作 ---- */
+function movePeriod(id, delta) {
+  const i = state.periodGroups.findIndex(g => g.id === id);
+  const j = i + delta;
+  if (i < 0 || j < 0 || j >= state.periodGroups.length) return;
+  const tmp = state.periodGroups[i];
+  state.periodGroups[i] = state.periodGroups[j];
+  state.periodGroups[j] = tmp;
+  savePrefs();
+  renderPeriodList();
+  if (state.view === 'period') { resetSort(); render(); }
+  else if (state.view === 'sku') render();
+}
+
+function deletePeriod(id) {
+  const g = state.periodGroups.find(x => x.id === id);
+  if (!g) return;
+  if (!confirm(`刪除期間組合「${periodName(g)}」？`)) return;
+  state.periodGroups = state.periodGroups.filter(x => x.id !== id);
+  if (state.editingPeriodId === id) cancelPeriodEditor();
+  savePrefs();
+  renderPeriodList();
+  updatePeriodBtn();
+  if (state.view === 'period') { resetSort(); render(); }
+  else if (state.view === 'sku') render();
 }
 
 function renderGroupList() {
@@ -2109,7 +2743,10 @@ function renderSites(filterText) {
     const meta = [s.regional, s.om, s.class2, s.size].filter(Boolean).join(' · ');
     const warn = s.focus ? ' <span class="warnq" title="需特別關注">⚠</span>' : '';
     const lean = s.leanSku ? ' <span class="tag">精簡SKU</span>' : '';
-    return `<label class="ms-item"><input type="checkbox" data-i="${i}" ${state.sites.has(i) ? 'checked' : ''}>
+    const input = state.siteMode === 'single'
+      ? `<input type="radio" name="sitePick" data-i="${i}" ${state.sites.has(i) ? 'checked' : ''}>`
+      : `<input type="checkbox" data-i="${i}" ${state.sites.has(i) ? 'checked' : ''}>`;
+    return `<label class="ms-item">${input}
       <span class="ms-code">${esc(s.code)}</span><span class="ms-name">${esc(s.name || '')}${warn}${lean}</span>
       <span class="ms-meta">${esc(meta)}</span></label>`;
   }).join('');
@@ -2156,6 +2793,8 @@ function updateAdvBadge() {
 }
 
 function resetSort() {
+  if (state.view === 'period') { state.sortKey = 'p0:sales'; state.sortDir = 'desc'; return; }
+  if (state.view === 'sku') { state.sortKey = 'skuLabel'; state.sortDir = 'asc'; return; }
   state.sortKey = state.view === 'matrix' ? 'total' : 'curSales';
   state.sortDir = 'desc';
 }
@@ -2164,10 +2803,19 @@ function resetSort() {
 function initDashboard(ds, token) {
   DS = ds; TOKEN = token;
   state.sites = new Set(ds.sites.map((_, i) => i));
+  state.siteMode = 'multi';
+  // 清走舊資料檔先有、但今次檔案冇嘅執整月份／店舖代碼
+  const monthSet = new Set(ds.months);
+  const codeSet = new Set(ds.sites.map(s => s.code));
+  for (const [code, m] of Object.entries(state.adjustMonths)) {
+    if (!monthSet.has(m) || !codeSet.has(code)) delete state.adjustMonths[code];
+  }
+  savePrefs();
   for (const k of ATTRS) state[k] = new Set();
   state.focusOnly = false; state.templateOnly = false; state.leanSkuOnly = false; state.hideEmpty = true;
   state.groupBys = ['shop']; state.sortKey = 'curSales'; state.sortDir = 'desc';
   state.view = 'agg'; state.matrixMetric = 'salesYoy';
+  state.editingPeriodId = null;
   // 分組選項：主檔屬性 +（明細檔）檔案分析維度；預設保持「店舖」
   const groupOpts = TEMPLATE_GROUPINGS.map(k => [k, GROUP_LABEL_JS[k] || k]);
   if (ds.kind === 'rich' && ds.dims) {
@@ -2181,6 +2829,14 @@ function initDashboard(ds, token) {
   $('#viewSel').value = 'agg';
   $('#metricSel').value = 'salesYoy';
   $('#metricSel').classList.add('hidden');
+  $('#skuBulkMonth').innerHTML = '<option value="">— 清除 —</option>'
+    + ds.months.map(m => `<option value="${m}">${m}</option>`).join('');
+  $('#periodEditor').classList.add('hidden');
+  $('#viewNote').classList.add('hidden');
+  $('#skuTools').classList.add('hidden');
+  $('#chartsSection').classList.remove('hidden');
+  renderPeriodList();
+  updatePeriodBtn();
   $('#chkFocus').checked = false;
   $('#chkLeanSku').checked = false;
   $('#chkTemplate').checked = false;
@@ -2313,12 +2969,17 @@ function collectOpts() {
     focusOnly: state.focusOnly, templateOnly: state.templateOnly, leanSkuOnly: state.leanSkuOnly,
     hideEmpty: state.hideEmpty,
     sortKey: state.sortKey, sortDir: state.sortDir,
-    groupBys: [...state.groupBys], view: state.view, matrixMetric: state.matrixMetric
+    groupBys: [...state.groupBys], view: state.view, matrixMetric: state.matrixMetric,
+    periodGroups: state.periodGroups.map(g => ({ name: periodName(g), months: [...g.months] })),
+    adjustMonths: { ...state.adjustMonths },
+    skuUsePeriods: !!state.skuUsePeriods
   };
 }
 
 async function exportXlsx() {
-  if (!DS || !state.months.size) { alert('請先選擇年份及至少一個月份。'); return; }
+  if (!DS) { alert('請先上載資料。'); return; }
+  if (state.view !== 'sku' && state.view !== 'period' && !state.months.size) { alert('請先選擇年份及至少一個月份。'); return; }
+  if (state.view === 'period' && !state.periodGroups.length) { alert('請先新增至少一個期間組合。'); return; }
   const btn = $('#btnExport');
   btn.disabled = true; btn.textContent = '產生中…';
   try {
@@ -2372,7 +3033,13 @@ $('#btnClear').addEventListener('click', async () => {
   window.scrollTo({ top: 0, behavior: 'smooth' });
 });
 
-$('#yearSel').addEventListener('change', e => { state.year = +e.target.value; resetSort(); buildMonthChips(); render(); });
+$('#yearSel').addEventListener('change', e => {
+  state.year = +e.target.value;
+  cancelPeriodEditor();
+  resetSort();
+  buildMonthChips();
+  render();
+});
 $('#groupList').addEventListener('change', e => {
   const cb = e.target.closest('input[type=checkbox]'); if (!cb) return;
   const v = cb.dataset.v;
@@ -2397,15 +3064,7 @@ $('#btnGroupReset').addEventListener('click', () => {
 $('#viewSel').addEventListener('change', e => {
   state.view = e.target.value;
   $('#metricSel').classList.toggle('hidden', state.view !== 'matrix');
-  if (state.view === 'matrix') {
-    if (!(state.sortKey === 'label' || state.sortKey === 'total' || state.sortKey.startsWith('m:'))) {
-      state.sortKey = 'total'; state.sortDir = 'desc';
-    }
-  } else {
-    if (!['label', 'curSales', 'yoySales', 'curQty', 'yoyQty', 'curGp', 'yoyGp', 'curGpPct', 'dGpPct'].includes(state.sortKey)) {
-      state.sortKey = 'curSales'; state.sortDir = 'desc';
-    }
-  }
+  resetSort();
   render();
 });
 $('#metricSel').addEventListener('change', e => {
@@ -2441,15 +3100,54 @@ function buildMonthChipsKeepSel() {
 
 $('#btnSite').addEventListener('click', e => { e.stopPropagation(); $('#sitePanel').classList.toggle('hidden'); });
 $('#btnGroup').addEventListener('click', e => { e.stopPropagation(); $('#groupPanel').classList.toggle('hidden'); });
+$('#btnPeriods').addEventListener('click', e => { e.stopPropagation(); $('#periodPanel').classList.toggle('hidden'); });
 document.addEventListener('click', e => {
   if (!e.target.closest('#siteMS')) $('#sitePanel').classList.add('hidden');
   if (!e.target.closest('#groupMS')) $('#groupPanel').classList.add('hidden');
+  if (!e.target.closest('#periodMS')) $('#periodPanel').classList.add('hidden');
+});
+
+$('#btnPeriodAdd').addEventListener('click', () => startPeriodEditor(null));
+$('#periodMonthChips').addEventListener('click', e => {
+  const b = e.target.closest('button.chip'); if (!b) return;
+  b.classList.toggle('on');
+});
+$('#btnPeriodSave').addEventListener('click', savePeriodEditor);
+$('#btnPeriodCancel').addEventListener('click', cancelPeriodEditor);
+$('#periodList').addEventListener('click', e => {
+  const act = e.target.closest('[data-act]'); if (!act) return;
+  const item = act.closest('.period-item');
+  if (!item) return;
+  const id = item.dataset.id;
+  const a = act.dataset.act;
+  if (a === 'edit') startPeriodEditor(id);
+  else if (a === 'del') deletePeriod(id);
+  else if (a === 'up') movePeriod(id, -1);
+  else if (a === 'down') movePeriod(id, 1);
 });
 $('#siteSearch').addEventListener('input', e => renderSites(e.target.value));
+$('#siteModeSwitch').addEventListener('click', e => {
+  const b = e.target.closest('.mode-btn'); if (!b) return;
+  const mode = b.dataset.mode === 'single' ? 'single' : 'multi';
+  if (state.siteMode === mode) return;
+  state.siteMode = mode;
+  if (mode === 'single' && state.sites.size > 1) {
+    state.sites = new Set([[...state.sites][0]]);
+  }
+  renderSites($('#siteSearch').value);
+  updateSiteBtn();
+  render();
+});
 $('#siteList').addEventListener('change', e => {
-  const cb = e.target.closest('input[type=checkbox]'); if (!cb) return;
-  const i = +cb.dataset.i;
-  if (cb.checked) state.sites.add(i); else state.sites.delete(i);
+  const inp = e.target.closest('input[data-i]'); if (!inp) return;
+  const i = +inp.dataset.i;
+  if (state.siteMode === 'single') {
+    if (inp.checked) {
+      state.sites = new Set([i]);
+      $('#sitePanel').classList.add('hidden');
+    }
+  } else if (inp.checked) state.sites.add(i);
+  else state.sites.delete(i);
   updateSiteBtn(); render();
 });
 $('#btnSitesAll').addEventListener('click', () => {
@@ -2492,7 +3190,39 @@ $('#thead').addEventListener('click', e => {
   const th = e.target.closest('th[data-sort]'); if (!th) return;
   const k = th.dataset.sort;
   if (state.sortKey === k) state.sortDir = state.sortDir === 'desc' ? 'asc' : 'desc';
-  else { state.sortKey = k; state.sortDir = k === 'label' ? 'asc' : 'desc'; }
+  else { state.sortKey = k; state.sortDir = (k === 'label' || k === 'skuLabel') ? 'asc' : 'desc'; }
+  render();
+});
+
+$('#tbody').addEventListener('change', e => {
+  const sel = e.target.closest('select.sku-month'); if (!sel) return;
+  const code = sel.dataset.code;
+  if (sel.value) state.adjustMonths[code] = sel.value;
+  else delete state.adjustMonths[code];
+  savePrefs();
+  render();
+});
+$('#chkSkuUsePeriods').addEventListener('change', e => {
+  state.skuUsePeriods = e.target.checked;
+  savePrefs();
+  render();
+});
+$('#btnSkuBulkApply').addEventListener('click', () => {
+  const m = $('#skuBulkMonth').value;
+  const { groups } = prepareRows(['shop']);
+  for (const g of groups.values()) {
+    const code = g.site ? g.site.code : g.code;
+    if (!code) continue;
+    if (m) state.adjustMonths[code] = m;
+    else delete state.adjustMonths[code];
+  }
+  savePrefs();
+  render();
+});
+$('#btnSkuClearAll').addEventListener('click', () => {
+  if (!confirm('清除所有店舖的執整月份？')) return;
+  state.adjustMonths = {};
+  savePrefs();
   render();
 });
 

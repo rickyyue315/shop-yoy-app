@@ -158,6 +158,22 @@ def _month_str(v):
     return s if MONTH_RE.match(s) else ''
 
 
+def _sku_str(v):
+    """把 SKU 儲存格正規化成字串；數字型 SKU 去掉不必要的 .0。"""
+    if v is None:
+        return ''
+    if isinstance(v, float) and v.is_integer():
+        return str(int(v))
+    return str(v).strip()
+
+
+def _add_months(month, delta):
+    """'YYYY-MM' 加減月份，跨越年份都正確。"""
+    y, m = int(month[:4]), int(month[5:7])
+    total = y * 12 + (m - 1) + int(delta)
+    return '%04d-%02d' % (total // 12, total % 12 + 1)
+
+
 def _period_label(months):
     """把月份清單化成易讀字串，如 '2026-01 至 2026-09'。"""
     if not months:
@@ -371,6 +387,7 @@ def parse_excel(data, progress=None):
         i_qty = colmap.get('soldqty')
         i_cogs = colmap.get('cogs')
         i_gp = colmap.get('gp$')
+        i_sku = colmap.get('sku')
         # 額外分析維度（Hugo_all_YoY 明細檔才有）
         dim_cols = {k: colmap.get(k) for k in ALL_DIMS}
         rich = any(v is not None for v in dim_cols.values())
@@ -386,6 +403,7 @@ def parse_excel(data, progress=None):
         excel_names = {}    # code -> 店名（取自 Excel 的 'CODE - 店名' 格式）
         months_set = set()
         dim_valuesets = {k: set() for k in ALL_DIMS}
+        sku_sets = {} if i_sku is not None else None  # (code, month) -> set(SKU)
 
         processed = 0
         for row in row_iter:
@@ -409,6 +427,11 @@ def parse_excel(data, progress=None):
                 code, name = shop, ''
             if code not in excel_names and name:
                 excel_names[code] = name
+
+            if sku_sets is not None:
+                sku = _sku_str(cell(row, i_sku))
+                if sku:
+                    sku_sets.setdefault((code, m), set()).add(sku)
 
             qty = _num(cell(row, i_qty))
             sales = _num(cell(row, i_sales))
@@ -441,6 +464,18 @@ def parse_excel(data, progress=None):
         cb(95, '對照店舖主檔…')
         months = sorted(months_set)
         m_idx = {m: i for i, m in enumerate(months)}
+
+        # 每店每月「有銷售 SKU 數」：只保留數量，唔保留完整 SKU 清單，控制記憶體。
+        sku_counts = None
+        if sku_sets is not None:
+            sku_counts = {}
+            for (code, m), skus in sku_sets.items():
+                arr = sku_counts.get(code)
+                if arr is None:
+                    arr = [None] * len(months)
+                    sku_counts[code] = arr
+                arr[m_idx[m]] = len(skus)
+            sku_sets = None
 
         # 對照店舖主檔
         tpl = load_template()
@@ -518,6 +553,8 @@ def parse_excel(data, progress=None):
         }
         if rich:
             ds['dims'] = {k: {'values': d['values'], 'pos': d['pos']} for k, d in dims.items()}
+        if sku_counts is not None:
+            ds['skuCounts'] = sku_counts
         cb(99, '即將完成…')
         return ds
     finally:
@@ -936,6 +973,303 @@ def _matrix_value(cur, ly, metric):
         return (cur[2] / cur[1]) if cur[1] else None
     # 預設：淨銷售 YoY%
     return ((cur[1] - ly[1]) / ly[1]) if ly[1] > 0 else None
+
+
+_PERIOD_SORT_METRICS = {
+    'sales': 'salesVal', 'salesYoy': 'salesYoy',
+    'qty': 'qtyVal', 'qtyYoy': 'qtyYoy',
+    'gp': 'gpVal', 'gpYoy': 'gpYoy', 'gpPp': 'gpPp',
+}
+
+
+def _month_num_label(nums):
+    nums = sorted({int(n) for n in nums if 1 <= int(n) <= 12})
+    if not nums:
+        return '（未選月份）'
+    ranges = []
+    start = prev = nums[0]
+    for n in nums[1:]:
+        if n == prev + 1:
+            prev = n
+        else:
+            ranges.append((start, prev))
+            start = prev = n
+    ranges.append((start, prev))
+
+    def one(a, b):
+        if a == b:
+            return '%d月' % a
+        if b == a + 1:
+            return '%d、%d月' % (a, b)
+        return '%d–%d月' % (a, b)
+
+    return '、'.join(one(a, b) for a, b in ranges)
+
+
+def _period_defs(opts):
+    """讀取前端傳來的期間組合；每組最多 12 個月，最多 6 組。"""
+    raw = opts.get('periodGroups') or []
+    if not isinstance(raw, list):
+        return []
+    out = []
+    for g in raw[:6]:
+        if not isinstance(g, dict):
+            continue
+        months = []
+        for v in (g.get('months') or []):
+            try:
+                n = int(v)
+            except (TypeError, ValueError):
+                continue
+            if 1 <= n <= 12 and n not in months:
+                months.append(n)
+        if not months:
+            continue
+        months.sort()
+        name = str(g.get('name') or '').strip() or _month_num_label(months)
+        out.append({'name': name, 'months': months, 'label': _month_num_label(months)})
+    return out
+
+
+def compute_periods(ds, opts):
+    """期間比較：每組獨立合計本期與去年同期（YoY = 合計後計算）。"""
+    year = int(opts.get('year'))
+    periods = _period_defs(opts)
+    if not periods:
+        return {'groups': [], 'periods': [], 'totals': [], 'siteCount': 0}
+
+    prep = _prepare(ds, opts)
+    groups = prep['groups']
+    site_group = prep['site_group']
+    pass_set = prep['pass_set']
+    site_mode = prep['site_mode']
+    months_list = ds['months']
+
+    by_month = {}
+    for idx, p in enumerate(periods):
+        for n in p['months']:
+            by_month.setdefault(n, []).append(idx)
+
+    def ensure(g):
+        if 'periods' not in g:
+            g['periods'] = [[[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]] for _ in periods]
+
+    for g in groups.values():
+        ensure(g)
+
+    ystr, lystr = str(year), str(year - 1)
+    for row in ds['rows']:
+        si = row[1]
+        if si not in pass_set:
+            continue
+        m = months_list[row[0]]
+        if m[:4] == ystr:
+            t = 0
+        elif m[:4] == lystr:
+            t = 1
+        else:
+            continue
+        idxs = by_month.get(int(m[5:7]))
+        if not idxs:
+            continue
+        gs = (groups[site_group[si]],) if site_mode else _row_groups(ds, prep, groups, row, si)
+        for g in gs:
+            ensure(g)
+            for gi in idxs:
+                a = g['periods'][gi][t]
+                a[0] += row[2]
+                a[1] += row[3]
+                a[2] += row[4]
+
+    hide_empty = opts.get('hideEmpty', True)
+    out = []
+    for g in groups.values():
+        if hide_empty and not any(x for p in g.get('periods', []) for x in p[0] + p[1]):
+            continue
+        out.append(g)
+
+    sort_key = str(opts.get('sortKey') or 'p0:sales')
+    if sort_key != 'label':
+        mm = re.match(r'^p(\d+):(\w+)$', sort_key)
+        if (not mm or int(mm.group(1)) >= len(periods)
+                or mm.group(2) not in _PERIOD_SORT_METRICS):
+            sort_key = 'p0:sales'
+    sort_desc = str(opts.get('sortDir') or 'desc') != 'asc'
+
+    if sort_key == 'label':
+        value_of = None
+    else:
+        mm = re.match(r'^p(\d+):(\w+)$', sort_key)
+        gi, metric = int(mm.group(1)), _PERIOD_SORT_METRICS[mm.group(2)]
+
+        def value_of(g):
+            p = g['periods'][gi]
+            return _matrix_value(p[0], p[1], metric)
+
+    if site_mode:
+        out = _sorted_groups(out, value_of, sort_desc, sort_key == 'label')
+    else:
+        out = _sort_hierarchy(out, value_of, sort_desc, sort_key == 'label')
+
+    totals = [[[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]] for _ in periods]
+    for g in out:
+        if g['depth'] != 0:
+            continue
+        for gi, p in enumerate(g['periods']):
+            for j in range(3):
+                totals[gi][0][j] += p[0][j]
+                totals[gi][1][j] += p[1][j]
+
+    return {
+        'groups': out, 'periods': periods,
+        'totals': [{'cur': t[0], 'ly': t[1]} for t in totals],
+        'siteCount': prep['pass_count'],
+    }
+
+
+def _valid_adjust_months(opts):
+    raw = opts.get('adjustMonths') or {}
+    if not isinstance(raw, dict):
+        return {}
+    out = {}
+    for code, m in raw.items():
+        m = str(m or '').strip()
+        if MONTH_RE.match(m):
+            out[str(code)] = m
+    return out
+
+
+def compute_sku_report(ds, opts):
+    """SKU 執整成效：每店手動指定執整月份，計前後各 3 個月合計 YoY。"""
+    prep = _prepare(ds, dict(opts, groupBys=['shop']))
+    groups = prep['groups']
+    pass_set = prep['pass_set']
+    months_list = ds['months']
+    m_ix = {m: i for i, m in enumerate(months_list)}
+    s_ix = {s['code']: i for i, s in enumerate(ds['sites'])}
+    adjust = _valid_adjust_months(opts)
+    periods = _period_defs(opts) if opts.get('skuUsePeriods') else []
+    use_periods = len(periods) >= 2
+
+    info = []
+    targets = set()
+    for g in groups.values():
+        code = g.get('code') or ''
+        adj = adjust.get(code, '')
+        if use_periods and adj:
+            y = adj[:4]
+            pre = ['%s-%02d' % (y, n) for n in periods[0]['months']]
+            post = ['%s-%02d' % (y, n) for n in periods[1]['months']]
+        else:
+            pre = [_add_months(adj, d) for d in (-3, -2, -1)] if adj else []
+            post = [_add_months(adj, d) for d in (1, 2, 3)] if adj else []
+        ly_pre = [_add_months(m, -12) for m in pre]
+        ly_post = [_add_months(m, -12) for m in post]
+        targets.update(pre)
+        targets.update(post)
+        targets.update(ly_pre)
+        targets.update(ly_post)
+        info.append({
+            'g': g, 'si': s_ix.get(code), 'adj': adj, 'pre': pre, 'post': post,
+            'ly_pre': ly_pre, 'ly_post': ly_post,
+            'prev': _add_months(adj, -1) if adj else '',
+        })
+
+    sums = {}
+    for row in ds['rows']:
+        si = row[1]
+        if si not in pass_set:
+            continue
+        m = months_list[row[0]]
+        if m not in targets:
+            continue
+        key = (si, m)
+        a = sums.get(key)
+        if a is None:
+            sums[key] = [row[2], row[3], row[4]]
+        else:
+            a[0] += row[2]
+            a[1] += row[3]
+            a[2] += row[4]
+
+    sku_counts = ds.get('skuCounts') or {}
+
+    def total(si, months):
+        a = [0.0, 0.0, 0.0]
+        if si is None:
+            return a
+        for m in months:
+            v = sums.get((si, m))
+            if v:
+                a[0] += v[0]
+                a[1] += v[1]
+                a[2] += v[2]
+        return a
+
+    yoy = lambda c, l: ((c - l) / l) if l and l > 0 else None
+    out = []
+    for it in info:
+        g = it['g']
+        si = it['si']
+        pre_cur = total(si, it['pre'])
+        pre_ly = total(si, it['ly_pre'])
+        post_cur = total(si, it['post'])
+        post_ly = total(si, it['ly_post'])
+
+        sku_count = None
+        sku_month = ''
+        arr = sku_counts.get(g.get('code'))
+        if arr and it['adj']:
+            for m in [it['prev']] + list(reversed(it['pre'])):
+                mi = m_ix.get(m)
+                if mi is not None and arr[mi] is not None:
+                    sku_count = arr[mi]
+                    sku_month = m
+                    break
+
+        out.append({
+            'label': g['label'], 'code': g.get('code', ''), 'name': g.get('name', ''),
+            'regional': g.get('regional', ''), 'om': g.get('om', ''),
+            'class1': g.get('class1', ''), 'class2': g.get('class2', ''),
+            'size': g.get('size', ''), 'type': g.get('type', ''),
+            'focus': bool(g.get('focus')),
+            'adjustMonth': it['adj'], 'skuCount': sku_count, 'skuMonth': sku_month,
+            'preCur': pre_cur, 'preLy': pre_ly,
+            'postCur': post_cur, 'postLy': post_ly,
+            'preYoy': yoy(pre_cur[1], pre_ly[1]),
+            'postYoy': yoy(post_cur[1], post_ly[1]),
+        })
+
+    sort_key = str(opts.get('sortKey') or 'skuLabel')
+    if sort_key not in ('skuLabel', 'skuAdj', 'skuCount', 'skuPre', 'skuPost'):
+        sort_key = 'skuLabel'
+    sort_desc = str(opts.get('sortDir') or 'asc') == 'desc'
+
+    def value_of(r):
+        if sort_key == 'skuAdj':
+            return r['adjustMonth'] or None
+        if sort_key == 'skuCount':
+            return r['skuCount']
+        if sort_key == 'skuPre':
+            return r['preYoy']
+        if sort_key == 'skuPost':
+            return r['postYoy']
+        return None
+
+    if sort_key == 'skuLabel':
+        out.sort(key=lambda r: r['label'], reverse=sort_desc)
+    elif sort_key == 'skuAdj':
+        filled = [r for r in out if r['adjustMonth']]
+        empty = [r for r in out if not r['adjustMonth']]
+        filled.sort(key=lambda r: r['adjustMonth'], reverse=sort_desc)
+        out = filled + empty
+    else:
+        out = _sorted_groups(out, value_of, sort_desc, False)
+
+    return {
+        'rows': out, 'siteCount': prep['pass_count'], 'hasSku': bool(sku_counts),
+        'usePeriods': use_periods, 'periods': periods,
+    }
 
 
 def _filter_summary(opts):
@@ -1415,6 +1749,272 @@ def build_matrix_workbook(ds, opts, matrix):
     return bio
 
 
+def build_period_workbook(ds, opts, report):
+    """期間比較匯出：每組獨立一個指標區塊（合計 YoY）。"""
+    year = int(opts['year'])
+    lyear = year - 1
+    levels = _resolve_levels(ds, opts)
+    periods = report.get('periods') or []
+    month_nums = sorted({n for p in periods for n in p['months']})
+    months = ['%d-%02d' % (year, n) for n in month_nums]
+    ly_months = ['%d-%02d' % (lyear, n) for n in month_nums]
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = '期間比較'
+
+    thin = Side(style='thin', color='D9E1EC')
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    head_font = Font(bold=True, color='FFFFFF', size=11)
+    head_fill = PatternFill('solid', fgColor='0F172A')
+    sub_fill = PatternFill('solid', fgColor='F1F5F9')
+    total_fill = PatternFill('solid', fgColor='EEF2FF')
+    na_font = Font(color='94A3B8')
+    center = Alignment(horizontal='center', vertical='center', wrap_text=True)
+    left = Alignment(horizontal='left', vertical='center')
+    right = Alignment(horizontal='right', vertical='center')
+
+    FMT_QTY = '#,##0'
+    FMT_MONEY = '#,##0'
+    FMT_YOY = '+0.0%;-0.0%;0.0%'
+    FMT_PP = '+0.00" pp";-0.00" pp";0.00" pp"'
+
+    _write_title_block(ws, ds, opts, months, ly_months,
+                       extra_line='檢視：期間比較（每組獨立合計 YoY）')
+    ws['A7'] = '口徑：每組 YoY = 該組月份合計 ÷ 去年同期同月合計 − 1'
+    ws['A7'].font = Font(size=10, color='475569')
+
+    header_row = 8
+    h1, h2 = header_row, header_row + 1
+
+    if levels == ['shop']:
+        lead = [
+            ('店舖', 'label', 26), ('Site', 'text', 9), ('店名', 'text', 18),
+            ('Regional', 'text', 9), ('OM', 'text', 9), ('Class 1', 'text', 8),
+            ('Class 2', 'text', 8), ('Size', 'text', 7), ('Type', 'text', 6),
+            ('需關注', 'text', 7),
+        ]
+    else:
+        lead_name = ' ＞ '.join(GROUP_LABELS.get(l, l) for l in levels) if len(levels) > 1 else GROUP_LABELS.get(levels[0], '分組')
+        lead = [(lead_name, 'label', 30), ('店舖數', 'qty', 9)]
+
+    block = [
+        ('淨銷售', 'money'), ('淨銷售 YoY%', 'yoy'),
+        ('銷量', 'qty'), ('銷量 YoY%', 'yoy'),
+        ('毛利 GP$', 'money'), ('GP$ YoY%', 'yoy'),
+        ('毛利率 ±pp', 'pp'),
+    ]
+    ncols = len(lead) + len(periods) * len(block)
+
+    # 表頭
+    for rr in (h1, h2):
+        for ci in range(1, ncols + 1):
+            c = ws.cell(row=rr, column=ci)
+            c.border = border
+            c.alignment = center
+            c.fill = head_fill if rr == h1 else sub_fill
+            c.font = head_font if rr == h1 else Font(bold=True, color='334155')
+
+    if levels == ['shop']:
+        ws.merge_cells(start_row=h1, start_column=1, end_row=h2, end_column=1)
+        ws.cell(row=h1, column=1, value=lead[0][0])
+        ws.cell(row=h1, column=2, value='店舖資料')
+        ws.merge_cells(start_row=h1, start_column=2, end_row=h1, end_column=len(lead))
+        for ci, (name, _kind, _w) in enumerate(lead[1:], start=2):
+            ws.cell(row=h2, column=ci, value=name)
+    else:
+        for ci, (name, _kind, _w) in enumerate(lead, start=1):
+            ws.merge_cells(start_row=h1, start_column=ci, end_row=h2, end_column=ci)
+            ws.cell(row=h1, column=ci, value=name)
+
+    col = len(lead) + 1
+    for p in periods:
+        ws.cell(row=h1, column=col, value=p['name'])
+        ws.merge_cells(start_row=h1, start_column=col, end_row=h1, end_column=col + len(block) - 1)
+        for j, (name, _kind) in enumerate(block):
+            ws.cell(row=h2, column=col + j, value=name)
+        col += len(block)
+
+    for ci, (_n, _k, w) in enumerate(lead, start=1):
+        ws.column_dimensions[get_column_letter(ci)].width = w
+    col = len(lead) + 1
+    for _p in periods:
+        for _name, kind in block:
+            ws.column_dimensions[get_column_letter(col)].width = {
+                'money': 15, 'qty': 11, 'yoy': 10, 'pp': 10}.get(kind, 11)
+            col += 1
+
+    def write_cell(rr, ci, kind, v, bold=False, fill=None):
+        c = ws.cell(row=rr, column=ci)
+        c.border = border
+        if fill:
+            c.fill = fill
+        if kind in ('label', 'text'):
+            c.value = v if v is not None else ''
+            c.font = Font(bold=bold)
+            c.alignment = left if kind == 'label' else center
+            return
+        c.alignment = right
+        if v is None:
+            c.value = '—'
+            c.font = na_font
+            c.alignment = center
+            return
+        c.value = float(v)
+        c.number_format = {'money': FMT_MONEY, 'qty': FMT_QTY, 'yoy': FMT_YOY, 'pp': FMT_PP}[kind]
+        if kind in ('yoy', 'pp'):
+            if v > 1e-9:
+                c.font = Font(bold=bold, color='047857')
+            elif v < -1e-9:
+                c.font = Font(bold=bold, color='B91C1C')
+            else:
+                c.font = Font(bold=bold)
+        else:
+            c.font = Font(bold=bold)
+
+    yy = lambda c, l: ((c - l) / l) if l and l > 0 else None
+
+    def metrics(p):
+        sc, sl = p['cur'][1], p['ly'][1]
+        qc, ql = p['cur'][0], p['ly'][0]
+        gc, gl = p['cur'][2], p['ly'][2]
+        pc = (gc / sc) if sc else None
+        pl = (gl / sl) if sl else None
+        return [sc, yy(sc, sl), qc, yy(qc, ql), gc, yy(gc, gl),
+                (pc - pl) if (pc is not None and pl is not None) else None]
+
+    def emit(g, bold=False, fill=None):
+        nonlocal r
+        if levels == ['shop']:
+            lead_vals = [
+                g['label'], g.get('code', ''), g.get('name', ''), g.get('regional', ''),
+                g.get('om', ''), g.get('class1', ''), g.get('class2', ''),
+                g.get('size', ''), g.get('type', ''), ('Y' if g.get('focus') else ''),
+            ]
+        else:
+            lead_vals = [('　' * g.get('depth', 0)) + g['label'], g['n']]
+        for ci, ((name, kind, _w), val) in enumerate(zip(lead, lead_vals), start=1):
+            write_cell(r, ci, kind, val, bold=bold, fill=fill)
+        col = len(lead) + 1
+        for gi, p in enumerate(g['periods']):
+            for (name, kind), v in zip(block, metrics({'cur': p[0], 'ly': p[1]})):
+                write_cell(r, col, kind, v, bold=bold, fill=fill)
+                col += 1
+        r += 1
+
+    r = h2 + 1
+    emit({'label': '總計', 'code': '', 'name': '', 'regional': '', 'om': '',
+          'class1': '', 'class2': '', 'size': '', 'type': '', 'focus': False,
+          'depth': 0, 'n': report.get('siteCount', 0),
+          'periods': [[t['cur'], t['ly']] for t in report.get('totals', [])]},
+         bold=True, fill=total_fill)
+    for g in report.get('groups', []):
+        emit(g)
+
+    last_row = r - 1
+    ws.auto_filter.ref = 'A%d:%s%d' % (h2, get_column_letter(ncols), last_row)
+    ws.freeze_panes = 'B%d' % (h2 + 1)
+
+    bio = io.BytesIO()
+    wb.save(bio)
+    bio.seek(0)
+    return bio
+
+
+def build_sku_workbook(ds, opts, report):
+    """SKU 執整成效匯出：每店手動執整月份、前後各 3 個月合計 YoY。"""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = 'SKU 執整'
+
+    thin = Side(style='thin', color='D9E1EC')
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    head_font = Font(bold=True, color='FFFFFF', size=11)
+    head_fill = PatternFill('solid', fgColor='0F172A')
+    na_font = Font(color='94A3B8')
+    center = Alignment(horizontal='center', vertical='center', wrap_text=True)
+    left = Alignment(horizontal='left', vertical='center')
+    right = Alignment(horizontal='right', vertical='center')
+
+    FMT_QTY = '#,##0'
+    FMT_YOY = '+0.0%;-0.0%;0.0%'
+
+    periods = report.get('periods') or []
+    use_periods = bool(report.get('usePeriods')) and len(periods) >= 2
+    pre_head = ('執整前（%s）合計YOY%%' % periods[0]['name']) if use_periods else '執整前3個月合計YOY%'
+    post_head = ('執整後（%s）合計YOY%%' % periods[1]['name']) if use_periods else '執整後3個月合計YOY%'
+
+    _write_title_block(ws, ds, opts, [], [], extra_line='檢視：SKU 執整成效')
+    ws['A3'] = '比較方式：每店按執整月份，前後各 3 個月合計 YoY' if not use_periods else \
+        '比較方式：每店按執整月份，使用期間組合「%s」vs「%s」' % (periods[0]['name'], periods[1]['name'])
+    ws['A3'].font = Font(size=11, bold=True, color='0F172A')
+    ws['A7'] = '執整前 SKU = 執整月份前一個月有銷售 SKU 數；YoY = 期間合計 ÷ 去年同期同月合計 − 1'
+    if use_periods:
+        ws['A7'] = ws['A7'].value + '（期間組合以執整月份所屬年份套用）'
+    ws['A7'].font = Font(size=10, color='475569')
+
+    header_row = 8
+    lead = [
+        ('店舖', 'label', 26), ('Site', 'text', 9), ('店名', 'text', 18),
+        ('Regional', 'text', 9), ('OM', 'text', 9), ('Class 1', 'text', 8),
+        ('Class 2', 'text', 8), ('Size', 'text', 7), ('Type', 'text', 6),
+        ('執整月份', 'text', 11), ('執整前SKU', 'qty', 10),
+        ('執整前SKU月份', 'text', 12), (pre_head, 'yoy', 15),
+        (post_head, 'yoy', 15),
+    ]
+
+    for ci, (name, _kind, w) in enumerate(lead, start=1):
+        c = ws.cell(row=header_row, column=ci, value=name)
+        c.border = border
+        c.fill = head_fill
+        c.font = head_font
+        c.alignment = center
+        ws.column_dimensions[get_column_letter(ci)].width = w
+
+    def write_cell(rr, ci, kind, v):
+        c = ws.cell(row=rr, column=ci)
+        c.border = border
+        if kind in ('label', 'text'):
+            c.value = v if v is not None else ''
+            c.font = Font(bold=False)
+            c.alignment = left if kind == 'label' else center
+            return
+        c.alignment = right
+        if v is None:
+            c.value = '—'
+            c.font = na_font
+            c.alignment = center
+            return
+        c.value = float(v)
+        c.number_format = FMT_QTY if kind == 'qty' else FMT_YOY
+        if kind == 'yoy' and abs(v) > 1e-9:
+            c.font = Font(color='047857' if v > 0 else 'B91C1C')
+        else:
+            c.font = Font()
+
+    r = header_row + 1
+    for row in report.get('rows', []):
+        vals = [
+            (row['label'], 'label'), (row['code'], 'text'), (row['name'], 'text'),
+            (row['regional'], 'text'), (row['om'], 'text'), (row['class1'], 'text'),
+            (row['class2'], 'text'), (row['size'], 'text'), (row['type'], 'text'),
+            (row['adjustMonth'], 'text'), (row['skuCount'], 'qty'),
+            (row['skuMonth'], 'text'), (row['preYoy'], 'yoy'), (row['postYoy'], 'yoy'),
+        ]
+        for ci, (v, kind) in enumerate(vals, start=1):
+            write_cell(r, ci, kind, v)
+        r += 1
+
+    last_row = max(r - 1, header_row)
+    ws.auto_filter.ref = 'A%d:%s%d' % (header_row, get_column_letter(len(lead)), last_row)
+    ws.freeze_panes = 'B%d' % (header_row + 1)
+
+    bio = io.BytesIO()
+    wb.save(bio)
+    bio.seek(0)
+    return bio
+
+
 # ---------------------------------------------------------------------------
 # 路由
 # ---------------------------------------------------------------------------
@@ -1667,12 +2267,23 @@ def api_export(token):
     if ds is None:
         return jsonify({'ok': False, 'error': '資料已過期，請重新上載 Excel。'}), 404
     opts = request.get_json(silent=True) or {}
-    if not opts.get('year') or not opts.get('months'):
+    view = opts.get('view') or 'agg'
+    if view not in ('sku', 'period') and (not opts.get('year') or not opts.get('months')):
         return jsonify({'ok': False, 'error': '請先選擇年份及至少一個月份。'}), 400
+    if view == 'period' and not _period_defs(opts):
+        return jsonify({'ok': False, 'error': '請先新增至少一個期間組合。'}), 400
+    if view == 'sku' and not opts.get('year'):
+        opts['year'] = int(str(ds.get('latestMonth') or '2000-01')[:4])
     try:
-        if (opts.get('view') or 'agg') == 'matrix':
+        if view == 'matrix':
             mx = compute_matrix(ds, opts)
             bio = build_matrix_workbook(ds, opts, mx)
+        elif view == 'period':
+            pr = compute_periods(ds, opts)
+            bio = build_period_workbook(ds, opts, pr)
+        elif view == 'sku':
+            sk = compute_sku_report(ds, opts)
+            bio = build_sku_workbook(ds, opts, sk)
         else:
             rep = compute_report(ds, opts)
             bio = build_workbook(ds, opts, rep)
@@ -1680,15 +2291,20 @@ def api_export(token):
         app.logger.exception('export error')
         return jsonify({'ok': False, 'error': '產生 Excel 時發生錯誤：%s' % e}), 500
 
-    ys = sorted({int(str(m)[5:7]) for m in opts['months']})
-    contiguous = all(ys[i] + 1 == ys[i + 1] for i in range(len(ys) - 1))
-    if len(ys) == 1:
-        mm = '%02d' % ys[0]
-    elif contiguous:
-        mm = '%02d-%02d' % (ys[0], ys[-1])
+    if view == 'period':
+        name = 'Shop_YoY_Periods_%d.xlsx' % int(opts['year'])
+    elif view == 'sku':
+        name = 'Shop_SKU_Adjust_%s.xlsx' % datetime.now().strftime('%Y%m%d')
     else:
-        mm = '-'.join('%02d' % m for m in ys)
-    name = 'Shop_YoY_%d_%s.xlsx' % (int(opts['year']), mm)
+        ys = sorted({int(str(m)[5:7]) for m in opts['months']})
+        contiguous = all(ys[i] + 1 == ys[i + 1] for i in range(len(ys) - 1))
+        if len(ys) == 1:
+            mm = '%02d' % ys[0]
+        elif contiguous:
+            mm = '%02d-%02d' % (ys[0], ys[-1])
+        else:
+            mm = '-'.join('%02d' % m for m in ys)
+        name = 'Shop_YoY_%d_%s.xlsx' % (int(opts['year']), mm)
     return send_file(
         bio, as_attachment=True, download_name=name,
         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')

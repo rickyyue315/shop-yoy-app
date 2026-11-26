@@ -36,11 +36,24 @@ def test_parse_shop_level_file():
     assert len(ds['rows']) == 2
     assert ds['sites'][0]['code'] == 'ZZ99'
     assert ds['sites'][0]['name'] == '測試店'
+    assert 'skuCounts' not in ds
 
     # rows = [月份索引, 店舖索引, 銷量, 淨銷售, 毛利]
     first = ds['rows'][0]
     assert first[0] == 0 and first[1] == 0
     assert first[2:] == [10, 80.0, 32.0]
+
+
+def test_parse_sku_counts_distinct_per_site_month():
+    data = make_xlsx([
+        ('2026-01', 'ZZ99 - 測試店', 'SKU1', 1, 10, 6, 4),
+        ('2026-01', 'ZZ99 - 測試店', 'SKU1', 1, 10, 6, 4),  # 重複 SKU 只計一次
+        ('2026-01', 'ZZ99 - 測試店', 'SKU2', 1, 20, 12, 8),
+        ('2026-02', 'ZZ99 - 測試店', 'SKU2', 1, 30, 18, 12),
+    ], ('Month', 'Shop', 'SKU', 'Sold Qty', 'Net Sales', 'COGS', 'GP$'))
+
+    ds = A.parse_excel(data)
+    assert ds['skuCounts']['ZZ99'] == [2, 1]
 
 
 def test_parse_gp_falls_back_to_sales_minus_cogs():

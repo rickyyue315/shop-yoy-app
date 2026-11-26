@@ -50,6 +50,12 @@ def make_ds():
         'latestMonth': '2026-02',
         'rowCount': len(rows),
         'siteCount': len(SITES),
+        # 對應 MONTHS 的「有銷售 SKU 數」；HA04 冇資料所以冇 key
+        'skuCounts': {
+            'HA01': [5, 6, 7, 8],
+            'HA02': [2, 2, 3, 3],
+            'HA03': [1, 1, 2, 2],
+        },
     }
 
 
@@ -159,6 +165,82 @@ def test_matrix_sort_by_total():
     ha01 = rep['groups'][0]
     assert ha01['aggCur'] == [20, 250.0, 100.0]
     assert ha01['aggLy'] == [20, 200.0, 80.0]
+
+
+def test_period_groups_aggregate_yoy():
+    ds = make_ds()
+    o = opts(
+        periodGroups=[{'name': '1月', 'months': [1]}, {'name': '2月', 'months': [2]}],
+        sortKey='p0:sales', sortDir='desc')
+    pr = A.compute_periods(ds, o)
+
+    assert [p['name'] for p in pr['periods']] == ['1月', '2月']
+    by = {g['label'][:4]: g for g in pr['groups']}
+    assert by['HA01']['periods'][0][0] == [10, 100.0, 40.0]
+    assert by['HA01']['periods'][0][1] == [10, 80.0, 32.0]
+    assert by['HA01']['periods'][1][0] == [10, 150.0, 60.0]
+    assert by['HA01']['periods'][1][1] == [10, 120.0, 48.0]
+    assert pr['totals'][0]['cur'] == [16, 350.0, 100.0]
+    assert pr['totals'][0]['ly'] == [15, 180.0, 57.0]
+    assert pr['totals'][1]['cur'] == [12, 170.0, 64.0]
+    assert pr['totals'][1]['ly'] == [17, 260.0, 81.0]
+    assert labels(pr) == ['HA02 B 店', 'HA01 A 店', 'HA03 C 店']
+
+
+def test_period_export_row_order_matches_screen():
+    ds = make_ds()
+    o = opts(
+        periodGroups=[{'name': '1月', 'months': [1]}, {'name': '2月', 'months': [2]}],
+        sortKey='p0:sales', sortDir='desc')
+    pr = A.compute_periods(ds, o)
+    bio = A.build_period_workbook(ds, o, pr)
+    assert exported_codes(bio) == [g['label'][:4] for g in pr['groups']]
+    vals = [c for row in load_workbook(io.BytesIO(bio.getvalue())).active.iter_rows(values_only=True)
+            for c in row if isinstance(c, str)]
+    assert '1月' in vals and '2月' in vals
+
+
+def test_sku_adjust_report_and_export():
+    ds = make_ds()
+    o = opts(adjustMonths={'HA01': '2026-02'}, sortKey='skuLabel', sortDir='asc')
+    sk = A.compute_sku_report(ds, o)
+
+    assert sk['hasSku'] is True
+    by = {r['code']: r for r in sk['rows']}
+    assert by['HA01']['adjustMonth'] == '2026-02'
+    assert by['HA01']['skuCount'] == 7
+    assert by['HA01']['skuMonth'] == '2026-01'
+    assert round(by['HA01']['preYoy'], 6) == 0.25
+    assert by['HA01']['postYoy'] is None
+    assert [r['code'] for r in sk['rows']] == ['HA01', 'HA02', 'HA03', 'HA04']
+
+    bio = A.build_sku_workbook(ds, o, sk)
+    ws = load_workbook(io.BytesIO(bio.getvalue())).active
+    headers = [c.value for c in ws[8]]
+    first = [c.value for c in ws[9]]
+    assert first[headers.index('Site')] == 'HA01'
+    assert first[headers.index('執整月份')] == '2026-02'
+    assert first[headers.index('執整前SKU')] == 7
+    assert round(first[headers.index('執整前3個月合計YOY%')], 6) == 0.25
+
+
+def test_sku_adjust_uses_custom_period_groups():
+    ds = make_ds()
+    o = opts(
+        adjustMonths={'HA01': '2026-02'},
+        periodGroups=[{'name': '1月', 'months': [1]}, {'name': '2月', 'months': [2]}],
+        skuUsePeriods=True, sortKey='skuLabel', sortDir='asc')
+    sk = A.compute_sku_report(ds, o)
+    by = {r['code']: r for r in sk['rows']}
+    # 前組 = 2026-01（100 vs 80）；後組 = 2026-02（150 vs 120）
+    assert round(by['HA01']['preYoy'], 6) == 0.25
+    assert round(by['HA01']['postYoy'], 6) == 0.25
+
+    bio = A.build_sku_workbook(ds, o, sk)
+    ws = load_workbook(io.BytesIO(bio.getvalue())).active
+    headers = [c.value for c in ws[8]]
+    assert '執整前（1月）合計YOY%' in headers
+    assert '執整後（2月）合計YOY%' in headers
 
 
 def test_export_row_order_matches_screen():
